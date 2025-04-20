@@ -45,7 +45,7 @@ sudo make install
 mv ~/.config/nvim ~/.config/nvim.bak
 
 # Clone this repository
-git clone https://github.com/sevilzww/nvim-config.git ~/.config/nvim
+git clone https://github.com/Sevilze/nvim.git ~/.config/nvim
 
 # Start Neovim
 nvim
