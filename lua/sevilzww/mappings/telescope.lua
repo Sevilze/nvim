@@ -1,6 +1,48 @@
 -- Telescope mappings
 local map = vim.keymap.set
 
+local telescope = require("telescope")
+local actions = require("telescope.actions")
+local action_state = require("telescope.actions.state")
+
+telescope.setup({
+  defaults = {
+    mappings = {
+      i = {
+        ["<leader>a"] = function(prompt_bufnr)
+          local selection = action_state.get_selected_entry()
+          require("harpoon"):list():append({
+            value = selection.path,
+            row = selection.lnum and selection.lnum or 1,
+            col = selection.col and selection.col or 1,
+          })
+          vim.notify("Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon", vim.log.levels.INFO)
+        end,
+      },
+    },
+  },
+  pickers = {
+    live_grep = {
+      mappings = {
+        i = {
+          ["<leader>a"] = function(prompt_bufnr)
+            local selection = action_state.get_selected_entry()
+            if selection and selection.path then
+              require("harpoon"):list():append({
+                value = selection.path,
+                row = selection.lnum and selection.lnum or 1,
+                col = selection.col and selection.col or 1,
+                context = selection.text,
+              })
+              vim.notify("Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon", vim.log.levels.INFO)
+            end
+          end,
+        },
+      },
+    },
+  },
+})
+
 map("n", "<leader>fw", "<cmd>Telescope live_grep<CR>", { desc = "telescope live grep" })
 map("n", "<leader>fb", "<cmd>Telescope buffers<CR>", { desc = "telescope find buffers" })
 map("n", "<leader>fh", "<cmd>Telescope help_tags<CR>", { desc = "telescope help page" })
