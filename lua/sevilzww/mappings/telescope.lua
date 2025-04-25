@@ -40,6 +40,11 @@ telescope.setup({
         },
       },
     },
+    find_files = {
+      sorter = require("telescope.sorters").get_fuzzy_file(),
+      path_display = { "smart" },
+      file_ignore_patterns = {},
+    },
   },
 })
 

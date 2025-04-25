@@ -20,6 +20,12 @@ local function jump_to_context(item)
   end
 end
 
+local function notify(msg, level)
+  vim.notify(msg, level or vim.log.levels.INFO, {
+    timeout = 1000,
+  })
+end
+
 M.setup = function()
   local harpoon = require("harpoon")
   local map = vim.keymap.set
@@ -47,12 +53,12 @@ M.setup = function()
               local list = require("harpoon"):list()
               if i <= list:length() then
                 list:remove_at(i)
-                vim.notify("Removed Harpoon mark #" .. i, vim.log.levels.INFO)
                 vim.defer_fn(function()
                   require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
+                  notify("Removed Harpoon mark #" .. i)
                 end, 100)
               else
-                vim.notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
+                notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
               end
             end, 50)
           end, { buffer = buf, noremap = true, silent = true, desc = "Remove item " .. i })
@@ -69,12 +75,12 @@ M.setup = function()
               local list = require("harpoon"):list()
               if i <= list:length() then
                 list:remove_at(i)
-                vim.notify("Removed Harpoon mark #" .. i, vim.log.levels.INFO)
                 vim.defer_fn(function()
                   require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
+                  notify("Removed Harpoon mark #" .. i)
                 end, 100)
               else
-                vim.notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
+                notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
               end
             end, 50)
           end, { buffer = buf, noremap = true, silent = true, desc = "Remove item " .. i })
@@ -106,7 +112,7 @@ M.setup = function()
                 end)
               end
             else
-              vim.notify("No Harpoon item at index " .. i, vim.log.levels.WARN)
+              notify("No Harpoon item at index " .. i, vim.log.levels.WARN)
             end
           end)
           
@@ -123,7 +129,7 @@ M.setup = function()
                   end)
                 end
               else
-                vim.notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
+                notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
               end
             end)
           end
@@ -134,7 +140,7 @@ M.setup = function()
         local list = harpoon:list()
         if i <= list:length() then
           list:remove_at(i)
-          vim.notify("Removed Harpoon mark #" .. i, vim.log.levels.INFO)
+          notify("Removed Harpoon mark #" .. i)
           if vim.bo.filetype == "harpoon" then
             vim.cmd("bdelete!")
             vim.defer_fn(function()
@@ -142,7 +148,7 @@ M.setup = function()
             end, 100)
           end
         else
-          vim.notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
+          notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
         end
       end, { desc = "harpoon remove item " .. i })
     elseif i >= 10 then
@@ -154,7 +160,7 @@ M.setup = function()
             if list and list.items and i <= #list.items then
               list:select(i)
             else
-              vim.notify("No Harpoon item at index " .. i, vim.log.levels.WARN)
+              notify("No Harpoon item at index " .. i, vim.log.levels.WARN)
             end
           end)
           
@@ -165,7 +171,7 @@ M.setup = function()
               if list and list.items and i <= #list.items then
                 list:select(i)
               else
-                vim.notify("No Harpoon item at index " .. i, vim.log.levels.WARN)
+                notify("No Harpoon item at index " .. i, vim.log.levels.WARN)
               end
             end)
           end
@@ -176,7 +182,7 @@ M.setup = function()
         local list = harpoon:list()
         if i <= list:length() then
           list:remove_at(i)
-          vim.notify("Removed Harpoon mark #" .. i, vim.log.levels.INFO)
+          notify("Removed Harpoon mark #" .. i)
           if vim.bo.filetype == "harpoon" then
             vim.cmd("bdelete!")
             vim.defer_fn(function()
@@ -184,7 +190,7 @@ M.setup = function()
             end, 100)
           end
         else
-          vim.notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
+          notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
         end
       end, { desc = "harpoon remove item " .. i })
     end
@@ -201,14 +207,21 @@ M.setup = function()
 
   -- Clear list command
   map("n", "<leader>mc", function()
-    harpoon:list():clear()
-    vim.notify("Cleared Harpoon list", vim.log.levels.INFO)
-
-    if vim.bo.filetype == "harpoon" then
+    local harpoon = require("harpoon")
+    local was_menu_open = vim.bo.filetype == "harpoon"
+    
+    if was_menu_open then
       vim.cmd("bdelete!")
+    end
+    
+    harpoon:list():clear()    
+    if was_menu_open then
       vim.defer_fn(function()
-        require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
+        harpoon.ui:toggle_quick_menu(harpoon:list())
+        notify("Cleared Harpoon list")
       end, 100)
+    else
+      notify("Cleared Harpoon list")
     end
   end, { desc = "harpoon clear list" })
 end
