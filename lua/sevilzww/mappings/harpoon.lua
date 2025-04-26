@@ -44,23 +44,88 @@ M.setup = function()
       for i = 1, 30 do
         if i <= 9 then
           vim.keymap.set("n", tostring(i), function()
-            harpoon:list():select(i)
+            local index = i
+            
+            local success, item_info = pcall(function()
+              local harpoon = require("harpoon")
+              local list = harpoon:list()
+              
+              if index <= list:length() then
+                return {
+                  exists = true,
+                  row = list.items[index].row,
+                  col = list.items[index].col,
+                  context = list.items[index].context
+                }
+              else
+                return { exists = false }
+              end
+            end)
+            vim.cmd("bdelete!")
+            
+            vim.schedule(function()
+              if success and item_info.exists then
+                local nav_success, _ = pcall(function()
+                  local harpoon = require("harpoon")
+                  local list = harpoon:list()
+                  list:select(index)
+                end)
+                
+                if nav_success and item_info.row then
+                  vim.schedule(function()
+                    pcall(jump_to_context, item_info)
+                  end)
+                end
+              else
+
+                if not success then
+                  vim.schedule(function()
+                    local second_success, _ = pcall(function()
+                      local harpoon = require("harpoon")
+                      local list = harpoon:list()
+                      
+                      if index <= list:length() then
+                        list:select(index)
+                        
+                        if list.items[index] and list.items[index].row then
+                          vim.schedule(function()
+                            jump_to_context({
+                              row = list.items[index].row,
+                              col = list.items[index].col,
+                              context = list.items[index].context
+                            })
+                          end)
+                        end
+                      else
+                        notify("No Harpoon item at index " .. index, vim.log.levels.WARN)
+                      end
+                    end)
+                    
+                    if not second_success then
+                      notify("Failed to navigate to Harpoon item " .. index, vim.log.levels.ERROR)
+                    end
+                  end)
+                else
+                  notify("No Harpoon item at index " .. index, vim.log.levels.WARN)
+                end
+              end
+            end)
           end, { buffer = buf, noremap = true, silent = true, desc = "Select item " .. i })
 
           vim.keymap.set("n", "<leader>m" .. i, function()
             vim.cmd("bdelete!")
-            vim.defer_fn(function()
+            vim.schedule(function()
               local list = require("harpoon"):list()
               if i <= list:length() then
                 list:remove_at(i)
-                vim.defer_fn(function()
+                vim.schedule(function()
                   require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
                   notify("Removed Harpoon mark #" .. i)
-                end, 100)
+                end)
               else
                 notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
               end
-            end, 50)
+            end)
           end, { buffer = buf, noremap = true, silent = true, desc = "Remove item " .. i })
         elseif i >= 10 then
           -- Use leader prefix for numbers 10-30
@@ -71,18 +136,18 @@ M.setup = function()
           -- Add removal mapping with leader leader m prefix
           vim.keymap.set("n", "<leader><leader>m" .. i, function()
             vim.cmd("bdelete!")
-            vim.defer_fn(function()
+            vim.schedule(function()
               local list = require("harpoon"):list()
               if i <= list:length() then
                 list:remove_at(i)
-                vim.defer_fn(function()
+                vim.schedule(function()
                   require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
                   notify("Removed Harpoon mark #" .. i)
-                end, 100)
+                end)
               else
                 notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
               end
-            end, 50)
+            end)
           end, { buffer = buf, noremap = true, silent = true, desc = "Remove item " .. i })
         end
       end
@@ -143,9 +208,9 @@ M.setup = function()
           notify("Removed Harpoon mark #" .. i)
           if vim.bo.filetype == "harpoon" then
             vim.cmd("bdelete!")
-            vim.defer_fn(function()
+            vim.schedule(function()
               require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
-            end, 100)
+            end)
           end
         else
           notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
@@ -185,9 +250,9 @@ M.setup = function()
           notify("Removed Harpoon mark #" .. i)
           if vim.bo.filetype == "harpoon" then
             vim.cmd("bdelete!")
-            vim.defer_fn(function()
+            vim.schedule(function()
               require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
-            end, 100)
+            end)
           end
         else
           notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
@@ -216,10 +281,10 @@ M.setup = function()
     
     harpoon:list():clear()    
     if was_menu_open then
-      vim.defer_fn(function()
+      vim.schedule(function()
         harpoon.ui:toggle_quick_menu(harpoon:list())
         notify("Cleared Harpoon list")
-      end, 100)
+      end)
     else
       notify("Cleared Harpoon list")
     end

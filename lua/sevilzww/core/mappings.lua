@@ -53,7 +53,7 @@ map("n", "<leader>hn", function()
 end, { desc = "toggle hybrid line numbers" })
 map("n", "<leader>ch", "<cmd>NvCheatsheet<CR>", { desc = "toggle nvcheatsheet" })
 
-require("sevilzww.mappings.telescope")
+-- Load mappings for various plugins
 require("sevilzww.mappings.nvimtree")
 require("sevilzww.mappings.buffers")
 require("sevilzww.mappings.terminal")
@@ -64,3 +64,15 @@ require("sevilzww.mappings.whichkey")
 require("sevilzww.mappings.formatting")
 require("sevilzww.mappings.new_instance")
 require("sevilzww.mappings.swap_cleaner").setup()
+
+local telescope_ok, _ = pcall(require, "telescope")
+if telescope_ok then
+  require("sevilzww.mappings.telescope")
+else
+  vim.api.nvim_create_autocmd("User", {
+    pattern = "TelescopeLoaded",
+    callback = function()
+      require("sevilzww.mappings.telescope")
+    end,
+  })
+end
