@@ -2,11 +2,12 @@
 local M = {}
 
 local function jump_to_context(item)
-  if item.context then
-    local pattern = vim.fn.escape(vim.fn.trim(item.context), '\\[]^$.*/')
+  local context_text = ""  
+  if context_text and context_text ~= "" then
+    local pattern = vim.fn.escape(vim.fn.trim(context_text), '\\[]^$.*/')
     local found = vim.fn.search(pattern, 'w')
     if found == 0 then
-      pattern = vim.fn.escape(vim.fn.trim(item.context):gsub("%s+", ".*"), '\\[]^$.*/')
+      pattern = vim.fn.escape(vim.fn.trim(context_text):gsub("%s+", ".*"), '\\[]^$.*/')
       found = vim.fn.search(pattern, 'w')
     end
     if found > 0 then
@@ -43,7 +44,7 @@ M.setup = function()
       -- Map keys for items 1-30 in the menu
       for i = 1, 30 do
         if i <= 9 then
-          vim.keymap.set("n", tostring(i), function()
+          vim.keymap.set( "n", tostring(i), function()
             local index = i
             
             local success, item_info = pcall(function()
