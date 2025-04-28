@@ -1,3 +1,10 @@
+-- Helper function for notifications that won't trigger the "Press ENTER" prompt
+local function notify(msg, level)
+  vim.notify(msg, level or vim.log.levels.INFO, {
+    timeout = 1000,
+  })
+end
+
 -- Editor related plugins
 return {
   -- git stuff
@@ -17,6 +24,7 @@ return {
     config = function()
       local harpoon = require("harpoon")
 
+      -- Simple Harpoon setup focused on buffer list saving
       harpoon:setup({
         settings = {
           save_on_toggle = true,
@@ -24,22 +32,207 @@ return {
           save_on_change = true,
         },
 
+        global_settings = {
+          save_on_exit = true,
+          mark_branch = false,
+          save_path = vim.fn.stdpath("data") .. "/harpoon/",
+          projects_enabled = true,
+          load_on_startup = true,
+        },
+
         menu = {
-          format = function(item)
-            local context_text = ""
-            if type(item.context) == "table" and item.context.text then
-              context_text = item.context.text
-            end
-            return vim.fn.fnamemodify(item.value, ":.")
-          end,
           width = vim.api.nvim_win_get_width(0) - 4,
         },
       })
 
+      -- Create directory for Harpoon data if it doesn't exist
+      local harpoon_dir = vim.fn.stdpath("data") .. "/harpoon"
+      if vim.fn.isdirectory(harpoon_dir) == 0 then
+        vim.fn.mkdir(harpoon_dir, "p")
+      end
+
       vim.schedule(function()
         require("sevilzww.mappings.harpoon").setup()
       end)
-    end
+      
+      local function load_harpoon_for_current_dir()
+        local cwd = vim.fn.getcwd()
+        local project_name = vim.fn.fnamemodify(cwd, ":t")
+        local save_path = vim.fn.stdpath("data") .. "/harpoon/"
+
+        if save_path:sub(-1) ~= "/" then
+          save_path = save_path .. "/"
+        end
+
+        local project_file = save_path .. project_name .. ".json"
+        local file_exists = vim.fn.filereadable(project_file) == 1
+
+        if file_exists then
+          local success, content = pcall(function()
+            local f = io.open(project_file, "r")
+            if f then
+              local content = f:read("*all")
+              f:close()
+              return content
+            end
+            return nil
+          end)
+
+          if success and content then
+            local success, data = pcall(function() return vim.fn.json_decode(content) end)
+            if success and data and data.mark and data.mark.items then
+              local list = harpoon:list()
+              if list then
+                list:clear()
+
+                for _, item in ipairs(data.mark.items) do
+                  list:append(item)
+                end
+
+                notify("Loaded " .. #data.mark.items .. " items from Harpoon for " .. project_name)
+                return true
+              end
+            end
+          end
+        end
+        return false
+      end
+
+      vim.schedule(function()
+        load_harpoon_for_current_dir()
+      end)
+
+      -- Helper function to check if we should save in this directory
+      local function status_dir(dir)
+        if dir == vim.fn.expand("~") or dir:match("^/tmp") then
+          return false
+        end
+
+        return true
+      end
+
+      
+      local current_dir = vim.fn.getcwd()
+      local current_list = nil
+      
+      local function capture_current_list()
+        local harpoon = require("harpoon")
+        local list = harpoon:list()
+
+        if list and list.items and #list.items > 0 then
+          current_list = list.items
+          return true
+        else
+          current_list = nil
+          return false
+        end
+      end
+      
+      capture_current_list()
+      print(current_list)
+      
+      -- Helper function to save Harpoon state for a directory
+      local function save_dir(dir)
+        if not status_dir(dir) then
+          return false
+        end
+
+        if not current_list or #current_list == 0 then
+          return false
+        end
+
+        local project_name = vim.fn.fnamemodify(dir, ":t")
+        local save_success = pcall(function()
+          local save_path = vim.fn.stdpath("data") .. "/harpoon/"
+          if save_path:sub(-1) ~= "/" then
+            save_path = save_path .. "/"
+          end
+
+          vim.fn.mkdir(save_path, "p")
+          local project_file = save_path .. project_name .. ".json"
+          local json_data = vim.fn.json_encode({
+            mark = { items = current_list }
+          })
+
+          local file = io.open(project_file, "w")
+          if file then
+            file:write(json_data)
+            file:close()
+          else
+            error("Failed to open file for writing: " .. project_file)
+          end
+        end)
+
+        if save_success then
+          notify("Saved Harpoon state for: " .. project_name .. " (" .. #current_list .. " items)")
+          return true
+        else
+          notify("Failed to save Harpoon state for: " .. project_name, vim.log.levels.ERROR)
+          return false
+        end
+      end
+
+      -- Create autocmd to save and reload Harpoon state when changing directories
+      vim.api.nvim_create_autocmd("DirChanged", {
+        pattern = "*",
+        callback = function()
+          local new_dir = vim.fn.getcwd()
+
+          if status_dir(current_dir) and current_list and #current_list > 0 then
+            capture_current_list()
+            local success = save_dir(current_dir)
+          end
+
+          current_dir = new_dir
+
+          vim.schedule(function()
+            load_harpoon_for_current_dir()
+            vim.schedule(function()
+              capture_current_list()
+            end)
+          end)
+        end,
+      })
+
+      vim.api.nvim_create_user_command("HarpoonSave", function()
+        local cwd = vim.fn.getcwd()
+        local project_name = vim.fn.fnamemodify(cwd, ":t")
+
+        if not status_dir(cwd) then
+          notify("Skipping Harpoon save in home directory")
+          return
+        end
+
+        capture_current_list()
+        local success = save_dir(cwd)
+
+        if not success then
+          local harpoon = require("harpoon")
+          local list = harpoon:list()
+
+          if not list or not list.items or #list.items == 0 then
+            notify("No Harpoon items to save for project: " .. project_name)
+          end
+        end
+
+        capture_current_list()
+      end, {})
+
+      vim.api.nvim_create_user_command("HarpoonReload", function()
+        if load_harpoon_for_current_dir() then
+          local cwd = vim.fn.getcwd()
+          local project_name = vim.fn.fnamemodify(cwd, ":t")
+
+          vim.schedule(function()
+            capture_current_list()
+          end)
+
+          notify("Reloaded Harpoon state for project: " .. project_name, vim.log.levels.INFO)
+        else
+          notify("No Harpoon state found for current project", vim.log.levels.WARN)
+        end
+      end, {})
+    end,
   },
 
   "nvim-lua/plenary.nvim",
@@ -69,11 +262,6 @@ return {
       })
     end,
     config = function()
-      local ok, _ = pcall(telescope.load_extension, "fzf")
-      if not ok then
-        vim.notify("Failed to load telescope-fzf-native extension. Some searches may be slower.", vim.log.levels.WARN)
-      end
-
       local telescope = require("telescope")
       local actions = require("telescope.actions")
       local action_state = require("telescope.actions.state")
@@ -134,14 +322,14 @@ return {
                   local selection = action_state.get_selected_entry()
                   if selection and selection.path then
                     local context_text = selection.text or ""
-                    
+
                     local item = {
                       value = selection.path,
                       row = selection.lnum or 1,
                       col = selection.col or 0,
                       context = { text = context_text }
                     }
-                    
+
                     require("harpoon"):list():append(item)
                     vim.notify("Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon", vim.log.levels.INFO)
                   end
@@ -160,6 +348,11 @@ return {
         }
       })
 
+      local ok, _ = pcall(telescope.load_extension, "fzf")
+      if not ok then
+        vim.notify("Failed to load telescope-fzf-native extension. Some searches may be slower.", vim.log.levels.WARN)
+      end
+
       -- Create a custom command for files grouped by extension with async processing
       vim.api.nvim_create_user_command("FindFilesByExt", function()
         vim.schedule(function()
@@ -168,7 +361,7 @@ return {
             vim.notify("nvim-web-devicons not found, icons won't be displayed", vim.log.levels.WARN)
             devicons = { get_icon = function() return "", "" end }
           end
-          
+
           local pickers = require("telescope.pickers")
           local finders = require("telescope.finders")
           local conf = require("telescope.config").values
@@ -195,7 +388,7 @@ return {
             color_devicons = true,
             prompt_title = "Files by Extension",
           }
-          
+
           local files_by_ext = {}
           local ext_order = {}
           local all_files = {}
@@ -211,7 +404,7 @@ return {
           -- Create entry maker function
           local make_display = function(entry)
             local icon, icon_hl = devicons.get_icon(entry.filename, entry.ext, { default = true })
-            
+
             local displayer = entry_display.create({
               separator = " ",
               items = {
@@ -219,7 +412,7 @@ return {
                 { remaining = true }
               }
             })
-            
+
             return displayer({
               { icon, icon_hl },
               entry.filename
@@ -240,7 +433,7 @@ return {
 
           local function update_title_only()
             if not current_picker or not current_picker.results_win then return end
-            
+
             if current_picker.stats then
               current_picker.stats.processed = file_count
               current_picker.stats.matched = file_count
@@ -255,38 +448,38 @@ return {
 
           local function process_batch()
             if #current_batch == 0 then return end
-            
+
             for _, line in ipairs(current_batch) do
               if line and line ~= "" and vim.fn.isdirectory(line) == 0 then
                 local rel_path = vim.fn.fnamemodify(line, ":.")
                 local ext = string.lower(vim.fn.fnamemodify(line, ":e"))
                 ext = ext == "" and "no_ext" or ext
-                
+
                 if not files_by_ext[ext] then
                   files_by_ext[ext] = {}
                   table.insert(ext_order, ext)
                 end
-                
+
                 table.insert(files_by_ext[ext], {
                   path = rel_path,
                   ext = ext
                 })
-                
+
                 file_count = file_count + 1
                 if file_count % 100 == 0 then
                   update_title_only()
                 end
               end
             end
-            
+
             current_batch = {}
           end
-          
+
           local function start_collection()
             if current_job then
               current_job:shutdown()
             end
-            
+
             files_by_ext = {}
             ext_order = {}
             all_files = {}
@@ -295,18 +488,18 @@ return {
             current_batch = {}
             batch_count = 0
             last_update_time = vim.loop.now()
-            
+
             if current_picker then
               current_picker:refresh(finders.new_table({
                 results = {},
                 entry_maker = entry_maker,
               }), { reset_prompt = false })
-              
+
               if current_picker.prompt_bufnr then
                 vim.api.nvim_buf_set_option(current_picker.prompt_bufnr, "modifiable", false)
               end
             end
-            
+
             local timer = vim.loop.new_timer()
             timer:start(0, 100, vim.schedule_wrap(function()
               if not is_collecting then
@@ -314,7 +507,7 @@ return {
                 timer:close()
                 return
               end
-              
+
               -- Force a UI refresh by simulating a prompt change
               if current_picker and current_picker.prompt_bufnr then
                 local current_text = vim.api.nvim_buf_get_lines(current_picker.prompt_bufnr, 0, 1, false)[1] or ""
@@ -323,7 +516,7 @@ return {
                 vim.api.nvim_buf_set_lines(current_picker.prompt_bufnr, 0, 1, false, {current_text})
               end
             end))
-            
+
             current_job = Job:new({
               command = "rg",
               args = { "--files", "--hidden", "--glob", "!.git/" },
@@ -331,7 +524,7 @@ return {
               on_stdout = function(_, line)
                 table.insert(current_batch, line)
                 batch_count = batch_count + 1
-                
+
                 if batch_count >= batch_size then
                   process_batch()
                   batch_count = 0
@@ -343,54 +536,54 @@ return {
                     process_batch()
                   end)
                 end
-                
+
                 is_collecting = false
-                
+
                 if return_val ~= 0 then
                   vim.schedule(function()
                     vim.notify("Error finding files", vim.log.levels.ERROR)
                   end)
                   return
                 end
-                
+
                 -- Only do a full refresh at the end when collection is complete
                 vim.schedule(function()
                   if current_picker and current_picker.prompt_bufnr then
                     vim.api.nvim_buf_set_option(current_picker.prompt_bufnr, "modifiable", true)
                     vim.api.nvim_buf_set_lines(current_picker.prompt_bufnr, 0, 1, false, {""})
                   end
-                  
-                  table.sort(ext_order)                  
+
+                  table.sort(ext_order)
                   all_files = {}
                   for _, ext_name in ipairs(ext_order) do
                     table.sort(files_by_ext[ext_name], function(a, b) return a.path < b.path end)
-                    
+
                     for _, file_entry in ipairs(files_by_ext[ext_name]) do
                       table.insert(all_files, file_entry)
                     end
                   end
-                  
+
                   current_picker:refresh(finders.new_table({
                     results = all_files,
                     entry_maker = entry_maker,
                   }), { reset_prompt = false })
                   update_title_only()
-                  
+
                   vim.notify("File collection complete. Found " .. file_count .. " files.", vim.log.levels.INFO)
                 end)
               end
             })
-            
+
             current_job:start()
           end
-          
+
           local function cleanup()
             if current_job then
               current_job:shutdown()
               current_job = nil
             end
           end
-          
+
           current_picker = pickers.new(dropdown, {
             finder = finders.new_table({
               results = {},
@@ -399,27 +592,26 @@ return {
             sorter = sorters.get_generic_fuzzy_sorter(),
             previewer = conf.file_previewer({}),
             attach_mappings = function(prompt_bufnr, map)
-              
+
               actions.select_default:replace(function()
                 local selection = action_state.get_selected_entry()
                 if selection then
                   cleanup()
                   actions.close(prompt_bufnr)
-                  
+
                   vim.schedule(function()
                     vim.cmd("edit " .. vim.fn.fnameescape(selection.path))
                   end)
                 end
               end)
-              
+
               -- Override close action to clean up resources
               local original_close = actions.close
               actions.close = function(bufnr)
                 cleanup()
                 original_close(bufnr)
               end
-              
-              -- Add mapping to add to harpoon without closing
+
               map("i", "<leader>a", function()
                 local selection = action_state.get_selected_entry()
                 if selection then
@@ -428,16 +620,16 @@ return {
                     value = selection.path,
                     context = { text = "" }
                   })
-                  
+
                   vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
                 end
               end)
-              
+
               return true
             end
           })
-          
-          current_picker:find() 
+
+          current_picker:find()
           vim.schedule(function()
             start_collection()
           end)

@@ -2,7 +2,7 @@
 local M = {}
 
 local function jump_to_context(item)
-  local context_text = ""  
+  local context_text = ""
   if context_text and context_text ~= "" then
     local pattern = vim.fn.escape(vim.fn.trim(context_text), '\\[]^$.*/')
     local found = vim.fn.search(pattern, 'w')
@@ -46,11 +46,11 @@ M.setup = function()
         if i <= 9 then
           vim.keymap.set( "n", tostring(i), function()
             local index = i
-            
+
             local success, item_info = pcall(function()
               local harpoon = require("harpoon")
               local list = harpoon:list()
-              
+
               if index <= list:length() then
                 return {
                   exists = true,
@@ -63,7 +63,7 @@ M.setup = function()
               end
             end)
             vim.cmd("bdelete!")
-            
+
             vim.schedule(function()
               if success and item_info.exists then
                 local nav_success, _ = pcall(function()
@@ -71,7 +71,7 @@ M.setup = function()
                   local list = harpoon:list()
                   list:select(index)
                 end)
-                
+
                 if nav_success and item_info.row then
                   vim.schedule(function()
                     pcall(jump_to_context, item_info)
@@ -84,10 +84,10 @@ M.setup = function()
                     local second_success, _ = pcall(function()
                       local harpoon = require("harpoon")
                       local list = harpoon:list()
-                      
+
                       if index <= list:length() then
                         list:select(index)
-                        
+
                         if list.items[index] and list.items[index].row then
                           vim.schedule(function()
                             jump_to_context({
@@ -101,7 +101,7 @@ M.setup = function()
                         notify("No Harpoon item at index " .. index, vim.log.levels.WARN)
                       end
                     end)
-                    
+
                     if not second_success then
                       notify("Failed to navigate to Harpoon item " .. index, vim.log.levels.ERROR)
                     end
@@ -181,7 +181,7 @@ M.setup = function()
               notify("No Harpoon item at index " .. i, vim.log.levels.WARN)
             end
           end)
-          
+
           if not success then
             vim.schedule(function()
               local harpoon = require("harpoon")
@@ -229,7 +229,7 @@ M.setup = function()
               notify("No Harpoon item at index " .. i, vim.log.levels.WARN)
             end
           end)
-          
+
           if not success then
             vim.schedule(function()
               local harpoon = require("harpoon")
@@ -275,12 +275,12 @@ M.setup = function()
   map("n", "<leader>mc", function()
     local harpoon = require("harpoon")
     local was_menu_open = vim.bo.filetype == "harpoon"
-    
+
     if was_menu_open then
       vim.cmd("bdelete!")
     end
-    
-    harpoon:list():clear()    
+
+    harpoon:list():clear()
     if was_menu_open then
       vim.schedule(function()
         harpoon.ui:toggle_quick_menu(harpoon:list())
@@ -290,6 +290,14 @@ M.setup = function()
       notify("Cleared Harpoon list")
     end
   end, { desc = "harpoon clear list" })
+
+  map("n", "<leader>ml", function()
+    vim.cmd("HarpoonReload")
+  end, { desc = "harpoon reload from file" })
+
+  map("n", "<leader>ms", function()
+    vim.cmd("HarpoonSave")
+  end, { desc = "harpoon save to file" })
 end
 
 return M
