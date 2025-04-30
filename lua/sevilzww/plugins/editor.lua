@@ -1,8 +1,10 @@
--- Helper function for notifications that won't trigger the "Press ENTER" prompt
-local function notify(msg, level)
-  vim.notify(msg, level or vim.log.levels.INFO, {
-    timeout = 1000,
-  })
+local function notify(msg, level, opts)
+  opts = opts or {}
+  opts.title = opts.title or "Harpoon"
+  opts.timeout = opts.timeout or 500
+  opts.icon = opts.icon or "󱡅"
+
+  vim.notify(msg, level or vim.log.levels.INFO, opts)
 end
 
 -- Editor related plugins
@@ -54,7 +56,7 @@ return {
       vim.schedule(function()
         require("sevilzww.mappings.harpoon").setup()
       end)
-      
+
       local function load_harpoon_for_current_dir()
         local cwd = vim.fn.getcwd()
         local project_name = vim.fn.fnamemodify(cwd, ":t")
@@ -86,7 +88,7 @@ return {
                 list:clear()
 
                 for _, item in ipairs(data.mark.items) do
-                  list:append(item)
+                  list:add(item)
                 end
 
                 notify("Loaded " .. #data.mark.items .. " items from Harpoon for " .. project_name)
@@ -102,7 +104,6 @@ return {
         load_harpoon_for_current_dir()
       end)
 
-      -- Helper function to check if we should save in this directory
       local function status_dir(dir)
         if dir == vim.fn.expand("~") or dir:match("^/tmp") then
           return false
@@ -111,14 +112,10 @@ return {
         return true
       end
 
-      
-      local current_dir = vim.fn.getcwd()
       local current_list = nil
-      
       local function capture_current_list()
         local harpoon = require("harpoon")
         local list = harpoon:list()
-
         if list and list.items and #list.items > 0 then
           current_list = list.items
           return true
@@ -127,70 +124,45 @@ return {
           return false
         end
       end
-      
-      capture_current_list()
-      print(current_list)
-      
-      -- Helper function to save Harpoon state for a directory
-      local function save_dir(dir)
-        if not status_dir(dir) then
-          return false
-        end
 
-        if not current_list or #current_list == 0 then
+      local function save_dir(dir)
+        if not status_dir(dir) or not current_list or #current_list == 0 then
           return false
         end
 
         local project_name = vim.fn.fnamemodify(dir, ":t")
-        local save_success = pcall(function()
-          local save_path = vim.fn.stdpath("data") .. "/harpoon/"
-          if save_path:sub(-1) ~= "/" then
-            save_path = save_path .. "/"
-          end
+        local save_path = vim.fn.stdpath("data") .. "/harpoon/"
+        vim.fn.mkdir(save_path, "p")
+        local project_file = save_path .. project_name .. ".json"
+        local json_data = vim.fn.json_encode({ mark = { items = current_list } })
 
-          vim.fn.mkdir(save_path, "p")
-          local project_file = save_path .. project_name .. ".json"
-          local json_data = vim.fn.json_encode({
-            mark = { items = current_list }
-          })
-
-          local file = io.open(project_file, "w")
-          if file then
-            file:write(json_data)
-            file:close()
-          else
-            error("Failed to open file for writing: " .. project_file)
-          end
-        end)
-
-        if save_success then
-          notify("Saved Harpoon state for: " .. project_name .. " (" .. #current_list .. " items)")
-          return true
-        else
-          notify("Failed to save Harpoon state for: " .. project_name, vim.log.levels.ERROR)
+        local f, err = io.open(project_file, "w")
+        if not f then
+          vim.notify("Failed to open file for writing: " .. err, vim.log.levels.ERROR)
           return false
         end
+        f:write(json_data)
+        f:close()
+
+        notify("Saved Harpoon state for: " .. project_name .. " (" .. #current_list .. " items)")
+        return true
       end
 
-      -- Create autocmd to save and reload Harpoon state when changing directories
+      vim.api.nvim_create_autocmd("DirChangedPre", {
+        pattern = "*",
+        callback = function(event)
+          local old_dir = vim.fn.getcwd()
+          if capture_current_list() then
+            save_dir(old_dir)
+          end
+        end,
+      })
+
       vim.api.nvim_create_autocmd("DirChanged", {
         pattern = "*",
-        callback = function()
-          local new_dir = vim.fn.getcwd()
-
-          if status_dir(current_dir) and current_list and #current_list > 0 then
-            capture_current_list()
-            local success = save_dir(current_dir)
-          end
-
-          current_dir = new_dir
-
-          vim.schedule(function()
-            load_harpoon_for_current_dir()
-            vim.schedule(function()
-              capture_current_list()
-            end)
-          end)
+        callback = function(event)
+          load_harpoon_for_current_dir()
+          vim.schedule(capture_current_list)
         end,
       })
 
@@ -296,7 +268,7 @@ return {
                 if selection and selection.path then
                   vim.schedule(function()
                     local harpoon = require("harpoon")
-                    harpoon:list():append({
+                    harpoon:list():add({
                       value = selection.path,
                       context = { text = "" }
                     })
@@ -330,7 +302,7 @@ return {
                       context = { text = context_text }
                     }
 
-                    require("harpoon"):list():append(item)
+                    require("harpoon"):list():add(item)
                     vim.notify("Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon", vim.log.levels.INFO)
                   end
                 end,
@@ -616,7 +588,7 @@ return {
                 local selection = action_state.get_selected_entry()
                 if selection then
                   local harpoon = require("harpoon")
-                  harpoon:list():append({
+                  harpoon:list():add({
                     value = selection.path,
                     context = { text = "" }
                   })

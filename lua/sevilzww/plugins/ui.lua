@@ -15,6 +15,24 @@ return {
     end,
   },
 
+  {
+    "rcarriga/nvim-notify",
+    lazy = false,
+    priority = 1000,
+    config = function()
+      local notify = require("notify")
+      notify.setup({
+        background_colour = "#000000",
+        max_width = 80,
+        render = "default",
+        stages = "fade_in_slide_out",
+        top_down = true
+      })
+
+      vim.notify = notify
+    end,
+  },
+
   "nvzone/volt",
   "nvzone/menu",
   { "nvzone/minty", cmd = { "Huefy", "Shades" } },
