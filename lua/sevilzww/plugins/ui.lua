@@ -16,6 +16,81 @@ return {
   },
 
   {
+    "stevearc/dressing.nvim",
+    lazy = false,
+    priority = 1000,
+    config = function()
+      require("dressing").setup({
+        input = {
+          enabled = true,
+          default_prompt = "Input",
+          prompt_align = "left",
+          insert_only = true,
+          start_in_insert = true,
+          border = "rounded",
+          relative = "cursor",
+
+          prefer_width = 40,
+          width = nil,
+          max_width = { 140, 0.9 },
+          min_width = { 20, 0.2 },
+
+          win_options = {
+            winblend = 10,
+            wrap = false,
+            list = true,
+            listchars = "precedes:…,extends:…",
+            sidescrolloff = 0,
+          },
+
+          mappings = {
+            n = {
+              ["<Esc>"] = "Close",
+              ["<CR>"] = "Confirm",
+            },
+            i = {
+              ["<C-c>"] = "Close",
+              ["<CR>"] = "Confirm",
+              ["<Up>"] = "HistoryPrev",
+              ["<Down>"] = "HistoryNext",
+            },
+          },
+        },
+        select = {
+          enabled = true,
+          backend = { "telescope", "fzf_lua", "fzf", "builtin", "nui" },
+
+          trim_prompt = true,
+          telescope = nil,
+
+          builtin = {
+            border = "rounded",
+            relative = "editor",
+
+            win_options = {
+              winblend = 10,
+            },
+
+            width = nil,
+            max_width = { 140, 0.8 },
+            min_width = { 40, 0.2 },
+            height = nil,
+            max_height = 0.9,
+            min_height = { 10, 0.2 },
+
+            mappings = {
+              ["<Esc>"] = "Close",
+              ["<C-c>"] = "Close",
+              ["<CR>"] = "Confirm",
+            },
+          },
+        },
+      })
+
+    end,
+  },
+
+  {
     "rcarriga/nvim-notify",
     lazy = false,
     priority = 1000,
@@ -24,9 +99,10 @@ return {
       notify.setup({
         background_colour = "#000000",
         max_width = 80,
+        timeout = 100,
         render = "default",
         stages = "fade_in_slide_out",
-        top_down = true
+        top_down = true,
       })
 
       vim.notify = notify
@@ -73,6 +149,21 @@ return {
       nvimtree_config.view.side = "right"
       nvimtree_config.view.width = 35
 
+      nvimtree_config.ui = nvimtree_config.ui or {}
+      nvimtree_config.ui.confirm = {
+        remove = true,
+        trash = true,
+      }
+
+      nvimtree_config.renderer = nvimtree_config.renderer or {}
+      nvimtree_config.renderer.icons = nvimtree_config.renderer.icons or {}
+      nvimtree_config.renderer.icons.show = {
+        file = true,
+        folder = true,
+        folder_arrow = true,
+        git = true,
+      }
+
       vim.api.nvim_create_user_command("CheckNvimTreeConfig", function()
         local tree_config = require("nvim-tree.config")
         local tree_view = tree_config.view
@@ -98,6 +189,12 @@ return {
             side = "right",
             width = 35,
           },
+          ui = {
+            confirm = {
+              remove = true,
+              trash = true,
+            }
+          }
         })
 
         vim.cmd("NvimTreeOpen")
@@ -105,6 +202,9 @@ return {
       end, { desc = "Reload NvimTree with correct configuration" })
 
       return nvimtree_config
+    end,
+    config = function(_, opts)
+      require("nvim-tree").setup(opts)
     end,
   },
 

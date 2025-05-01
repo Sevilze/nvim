@@ -64,6 +64,9 @@ require("sevilzww.mappings.whichkey")
 require("sevilzww.mappings.formatting")
 require("sevilzww.mappings.new_instance")
 require("sevilzww.mappings.swap_cleaner").setup()
+require("sevilzww.mappings.lazygit").setup()
+require("sevilzww.mappings.git_conflict").setup()
+require("sevilzww.mappings.diffview").setup()
 
 local telescope_ok, _ = pcall(require, "telescope")
 if telescope_ok then

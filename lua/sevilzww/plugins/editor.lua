@@ -1,7 +1,7 @@
 local function notify(msg, level, opts)
   opts = opts or {}
   opts.title = opts.title or "Harpoon"
-  opts.timeout = opts.timeout or 500
+  opts.timeout = opts.timeout or 100
   opts.icon = opts.icon or "󱡅"
 
   vim.notify(msg, level or vim.log.levels.INFO, opts)
@@ -14,7 +14,17 @@ return {
     "lewis6991/gitsigns.nvim",
     event = "User FilePost",
     opts = function()
-      return require "nvchad.configs.gitsigns"
+      local nvchad_gitsigns = require "nvchad.configs.gitsigns"
+
+      nvchad_gitsigns.on_attach = function(bufnr)
+        require("sevilzww.mappings.gitsigns").setup(bufnr)
+      end
+
+      return nvchad_gitsigns
+    end,
+    config = function(_, opts)
+      require("gitsigns").setup(opts)
+      vim.notify("Gitsigns loaded with NvChad config + customizations", vim.log.levels.INFO)
     end,
   },
 
