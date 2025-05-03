@@ -24,7 +24,6 @@ return {
     end,
     config = function(_, opts)
       require("gitsigns").setup(opts)
-      vim.notify("Gitsigns loaded with NvChad config + customizations", vim.log.levels.INFO)
     end,
   },
 

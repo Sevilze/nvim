@@ -15,7 +15,6 @@ local function launch_nvim_with_terminal()
     terminal_cmd = string.format("tmux new-session -c \"%s\" -d -s nvim-term \"nvim -c 'terminal'\" && tmux attach-session -t nvim-term", current_dir)
   end
   vim.fn.system(terminal_cmd)
-  vim.notify("Launched new Neovim instance with terminal in tmux", vim.log.levels.INFO)
 end
 
 map("n", "<leader>h", function()

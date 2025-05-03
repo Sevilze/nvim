@@ -6,8 +6,6 @@ function M.setup()
   vim.keymap.set("n", "<leader>gdH", "<cmd>DiffviewFileHistory<CR>", { desc = "Open repo history" })
   vim.keymap.set("n", "<leader>gdf", "<cmd>DiffviewToggleFiles<CR>", { desc = "Toggle the file panel" })
   vim.keymap.set("n", "<leader>gdc", "<cmd>DiffviewClose<CR>", { desc = "Close Diffview" })
-  
-  vim.notify("Diffview mappings loaded", vim.log.levels.INFO)
 end
 
 function M.get_keymaps()

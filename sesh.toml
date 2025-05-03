@@ -1,0 +1,17 @@
+# Sesh configuration file
+[default_session]
+startup_command = "nvim -c ':Telescope find_files'"
+preview_command = "ls -la --color=always {}"
+blacklist = ["scratch"]
+
+[[session]]
+name = "nvim config"
+path = "~/.config/nvim"
+startup_command = "nvim init.lua"
+preview_command = "bat --color=always ~/.config/nvim/init.lua 2>/dev/null || cat ~/.config/nvim/init.lua"
+
+[[session]]
+name = "tmux config"
+path = "~/.config/nvim"
+startup_command = "nvim .tmux.conf"
+preview_command = "bat --color=always ~/.config/nvim/.tmux.conf 2>/dev/null || cat ~/.config/nvim/.tmux.conf"

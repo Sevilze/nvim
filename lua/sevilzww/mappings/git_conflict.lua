@@ -8,8 +8,6 @@ function M.setup()
   vim.keymap.set("n", "<leader>gcn", "<cmd>GitConflictNextConflict<CR>", { desc = "Next conflict" })
   vim.keymap.set("n", "<leader>gcp", "<cmd>GitConflictPrevConflict<CR>", { desc = "Previous conflict" })
   vim.keymap.set("n", "<leader>gcl", "<cmd>GitConflictListQf<CR>", { desc = "List all conflicts" })
-  
-  vim.notify("Git-conflict mappings loaded", vim.log.levels.INFO)
 end
 
 return M

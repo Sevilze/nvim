@@ -18,7 +18,7 @@
 - `<prefix> n` - Move to next window
 - `<prefix> p` - Move to previous window
 - `<prefix> w` - List all windows
-- `<prefix> &` - Kill current window
+- `<prefix> Q` - Kill current window
 - `<prefix> 0-9` - Switch to window number 0-9
 ---
 
@@ -79,6 +79,40 @@
 
 ### Tmux Configuration
 - `<prefix> r` - Reload tmux configuration
+---
+
+### Tmux Resurrect (Multi-Session Support)
+- `<prefix> S` - Save tmux session with custom name (prompts for name)
+- `<prefix> L` - Restore tmux session by name (prompts for name)
+- `<prefix> M-s` - Open interactive session manager in a popup window
+- `<prefix> M-l` - Display list of sessions in a popup window
+- `<prefix> M-f` - Save list of sessions to /tmp/tmux_sessions.txt
+- `<prefix> M-d` - Delete a saved session (prompts for name)
+- Sessions are saved to `~/.tmux/resurrect/sessions/`
+
+The interactive session manager (`<prefix> M-s`) provides:
+- List of all active tmux sessions
+- List of all saved custom sessions with timestamps
+- List of default tmux-resurrect sessions
+- Options to save, restore, or delete sessions
+- Detailed session metadata including windows, panes, and running processes
+---
+
+### Sesh Session Manager
+- `<prefix> T` - Open interactive sesh session picker with fzf
+- `<prefix> 9` - Switch to root session of current directory
+- `<prefix> L` - Switch to last session (overrides default tmux-resurrect binding)
+- `<prefix> M-c` - Check sesh configuration status
+
+Sesh picker (`<prefix> T`) keyboard shortcuts:
+- `Ctrl+a` - Show all sessions (tmux, configs, zoxide)
+- `Ctrl+t` - Show only tmux sessions
+- `Ctrl+g` - Show only configured sessions
+- `Ctrl+x` - Show only zoxide directories
+- `Ctrl+f` - Find directories in home directory
+- `Ctrl+d` - Kill the selected tmux session
+
+Sesh configuration is automatically updated when reloading tmux configuration with `<prefix> r`.
 ---
 
 ## Tips for Multiple Neovim Instances

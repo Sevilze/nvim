@@ -16,7 +16,3 @@ map("n", "<leader>fh", "<cmd>Telescope help_tags<CR>", { desc = "telescope help 
 map("n", "<leader>cm", "<cmd>Telescope git_commits<CR>", { desc = "telescope git commits" })
 map("n", "<leader>gt", "<cmd>Telescope git_status<CR>", { desc = "telescope git status" })
 map("n", "<leader>pt", "<cmd>Telescope terms<CR>", { desc = "telescope pick hidden term" })
-map("n", "<leader>th", function()
-  require("nvchad.themes").open()
-end, { desc = "telescope nvchad themes" })
-

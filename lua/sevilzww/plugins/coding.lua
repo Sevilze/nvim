@@ -100,7 +100,6 @@ return {
           f:write("    filesChangesColor:\n")
           f:write("      - '" .. theme_mapping.filesChangesColor .. "'\n")
           f:close()
-          vim.notify("LazyGit theme updated to match NvChad theme: " .. theme_name, vim.log.levels.INFO)
         else
           vim.notify("Failed to update LazyGit config file", vim.log.levels.ERROR)
         end
@@ -126,15 +125,83 @@ return {
         end
       end
 
-      vim.api.nvim_create_autocmd("ColorScheme", {
-        pattern = "*",
-        callback = function()
-          update_lazygit_theme()
-          local updated_chadrc = require("sevilzww.chadrc")
-          local updated_theme = updated_chadrc.base46.theme or "tokyodark"
-          vim.notify("Theme changed to " .. updated_theme .. ". Restart LazyGit to see changes.", vim.log.levels.INFO)
-        end,
-      })
+      -- Function to export theme colors for tmux
+      local function export_tmux_theme_colors()
+        package.loaded["sevilzww.chadrc"] = nil
+        local chadrc = require("sevilzww.chadrc")
+        local theme_name = chadrc.base46.theme or "tokyodark"
+
+        package.loaded["base46"] = nil
+        local colors = require("base46").get_theme_tb("base_30")
+
+        local tmux_colors = {
+          HEADER_COLOR = colors.blue,
+          ACTION_COLOR = colors.orange,
+          SESSION_COLOR = colors.teal,
+          TEXT_COLOR = colors.white,
+          BG_COLOR = colors.black,
+          BG_SELECT_COLOR = colors.darker_black or colors.black2 or colors.lightbg,
+          BORDER_COLOR = colors.grey,
+          PROMPT_COLOR = colors.blue,
+          POINTER_COLOR = colors.blue,
+          SPINNER_COLOR = colors.blue,
+          INFO_COLOR = colors.blue,
+          MARKER_COLOR = colors.blue,
+          HL_COLOR = colors.grey,
+          HL_SELECT_COLOR = colors.blue,
+          THEME_NAME = theme_name
+        }
+
+        if theme_name == "tokyodark" then
+          tmux_colors.BORDER_COLOR = "#565f89"
+        end
+
+        local tmux_config_dir = vim.fn.expand("~/.config/tmux")
+        local tmux_theme_file = tmux_config_dir .. "/theme_colors.sh"
+
+        if vim.fn.isdirectory(tmux_config_dir) == 0 then
+          vim.fn.mkdir(tmux_config_dir, "p")
+        end
+
+        local f = io.open(tmux_theme_file, "w")
+        if f then
+          f:write("#!/bin/bash\n")
+          f:write("# NvChad theme colors for tmux - Theme: " .. theme_name .. "\n")
+          f:write("# Generated on: " .. os.date() .. "\n\n")
+
+          for var_name, color in pairs(tmux_colors) do
+            f:write("export " .. var_name .. "=\"" .. color .. "\"\n")
+          end
+
+          f:close()
+          vim.fn.system("chmod +x " .. tmux_theme_file)
+
+          if vim.fn.executable("tmux") == 1 and vim.fn.system("tmux -V 2>/dev/null") ~= "" then
+            local nvim_config_dir = vim.fn.stdpath("config")
+            local copy_cmd = string.format("cd %s && cp .tmux.conf ~/.tmux.conf 2>/dev/null || true", nvim_config_dir)
+            vim.fn.system(copy_cmd)
+            vim.fn.system("tmux source-file ~/.tmux.conf 2>/dev/null || true")
+
+            local theme_msg = string.format("Theme updated to: %s", theme_name)
+            vim.fn.system(string.format('tmux display-message "%s" 2>/dev/null || true', theme_msg))
+          end
+        else
+          vim.notify("Failed to export tmux theme colors", vim.log.levels.ERROR)
+        end
+      end
+
+      export_tmux_theme_colors()
+
+      vim.api.nvim_create_user_command("UpdateTheme", function()
+        package.loaded["sevilzww.chadrc"] = nil
+        local updated_chadrc = require("sevilzww.chadrc")
+        local updated_theme = updated_chadrc.base46.theme or "tokyodark"
+        update_lazygit_theme()
+        export_tmux_theme_colors()
+
+        vim.notify("Theme changed to " .. updated_theme .. ". Tmux and LazyGit themes updated.", vim.log.levels.INFO)
+      end, { desc = "Update tmux theme colors to match current NvChad theme" })
+      vim.keymap.set("n", "<leader>tu", "<cmd>UpdateTheme<CR>", { desc = "Update tmux theme" })
     end,
   },
 
