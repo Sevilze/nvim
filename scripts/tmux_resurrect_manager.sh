@@ -1,19 +1,5 @@
 #!/bin/bash
 # Script to manage multiple tmux-resurrect sessions
-#
-# NOTE: For best results, add the following line to your ~/.tmux.conf:
-#   set -g @resurrect-dir "$HOME/.tmux/resurrect"
-#
-# This ensures tmux-resurrect always uses the same directory for saving/restoring.
-#
-# FEATURES:
-# - Multiple named sessions can be saved and restored independently
-# - Shell history isolation between sessions (enabled by default)
-#   - Each pane's shell history is saved and restored with the session
-#   - This prevents terminal history from overlapping between different sessions
-#   - To disable, set ISOLATE_SHELL_HISTORY="false" in this script
-
-# Ensure we have a consistent environment
 export PATH="$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl:/home/$USER/.local/bin:$PATH"
 
 # Helper function for logging
@@ -482,17 +468,12 @@ EOF
 
             chmod +x "$tmp_script"
 
-            # Execute the script in the pane
             tmux send-keys -t "$pane_id" C-u
             tmux send-keys -t "$pane_id" "source $tmp_script" C-m
 
-            # Wait for script to complete
-            sleep 2
-
-            # Clean up
+            sleep 1
             rm -f "$tmp_script"
 
-            # Check if history file was created and has content
             if [ -f "$history_file" ]; then
                 local line_count=$(wc -l < "$history_file" 2>/dev/null || echo 0)
                 echo "$(date): Saved history for pane $pane_id (shell: $shell_type) with $line_count lines" >> /tmp/tmux_resurrect_manager.log
@@ -502,10 +483,7 @@ EOF
         fi
     done
 
-    # Give a moment for history files to be written
-    sleep 2
-
-    # Check if any history files were created
+    sleep 1
     local file_count=$(find "$history_session_dir" -type f -name "*.history" | wc -l)
     echo "$(date): Created $file_count history files for session $session_name" >> /tmp/tmux_resurrect_manager.log
 
@@ -516,21 +494,18 @@ EOF
 restore_shell_history() {
     local session_name="$1"
 
-    # Skip if history isolation is disabled
     if [ "$ISOLATE_SHELL_HISTORY" != "true" ]; then
         echo "$(date): Shell history isolation is disabled, skipping restoration" >> /tmp/tmux_resurrect_manager.log
         return 0
     fi
 
     if [ -z "$session_name" ] || [ "$session_name" = "default" ]; then
-        # Don't restore history for default sessions
         echo "$(date): Not restoring history for default session" >> /tmp/tmux_resurrect_manager.log
         return 0
     fi
 
     echo "$(date): Restoring shell history for session: $session_name" >> /tmp/tmux_resurrect_manager.log
 
-    # Check if session history directory exists
     local history_session_dir="$HISTORY_DIR/$session_name"
     if [ ! -d "$history_session_dir" ]; then
         echo "$(date): No history directory found for session: $session_name" >> /tmp/tmux_resurrect_manager.log
@@ -545,9 +520,7 @@ restore_shell_history() {
     fi
 
     echo "$(date): Found history files in $history_session_dir" >> /tmp/tmux_resurrect_manager.log
-
-    # Wait a moment for panes to be fully restored
-    sleep 3
+    sleep 1
 
     # Get all panes
     local pane_count=0
@@ -555,7 +528,6 @@ restore_shell_history() {
         local pane_id=$(echo "$pane_info" | awk '{print $1}')
         local pane_pid=$(echo "$pane_info" | awk '{print $2}')
 
-        # Skip if not in the current session
         if [[ "$pane_id" != "$session_name:"* ]]; then
             continue
         fi
@@ -571,7 +543,6 @@ restore_shell_history() {
         if [ -f "$history_file" ]; then
             echo "$(date): Found history file: $history_file" >> /tmp/tmux_resurrect_manager.log
 
-            # Get the shell type
             local shell_pid=$(pgrep -P "$pane_pid" -f "bash|zsh|fish|sh" 2>/dev/null | head -1)
             if [ -z "$shell_pid" ]; then
                 shell_pid="$pane_pid"
@@ -583,12 +554,10 @@ restore_shell_history() {
             local shell_type=$(ps -p "$shell_pid" -o comm= 2>/dev/null | sed 's/^-//')
             echo "$(date): Detected shell type: $shell_type" >> /tmp/tmux_resurrect_manager.log
 
-            # Create a temporary script to restore history
             local tmp_script=$(mktemp)
             echo "$(date): Created temporary script: $tmp_script" >> /tmp/tmux_resurrect_manager.log
 
             if [[ "$shell_type" == *"bash"* ]]; then
-                # For Bash
                 cat > "$tmp_script" << EOF
 #!/bin/bash
 # Restore bash history
@@ -606,7 +575,6 @@ fi
 sleep 1
 EOF
             elif [[ "$shell_type" == *"zsh"* ]]; then
-                # For Zsh
                 cat > "$tmp_script" << EOF
 #!/bin/zsh
 # Restore zsh history
@@ -623,7 +591,6 @@ fi
 sleep 1
 EOF
             elif [[ "$shell_type" == *"fish"* ]]; then
-                # For Fish
                 cat > "$tmp_script" << EOF
 #!/usr/bin/env fish
 # Restore fish history
@@ -639,7 +606,6 @@ end
 sleep 1
 EOF
             else
-                # Generic fallback
                 cat > "$tmp_script" << EOF
 #!/bin/sh
 # Restore shell history (generic)
@@ -660,14 +626,8 @@ EOF
 
             chmod +x "$tmp_script"
 
-            # Execute the script in the pane
             tmux send-keys -t "$pane_id" C-u
             tmux send-keys -t "$pane_id" "source $tmp_script" C-m
-
-            # Wait for script to complete
-            sleep 2
-
-            # Clean up
             rm -f "$tmp_script"
 
             echo "$(date): Restored history for pane $pane_id (shell: $shell_type)" >> /tmp/tmux_resurrect_manager.log
@@ -695,7 +655,6 @@ update_session_index() {
 
     # Check if session already exists in index
     if grep -q "^$session_name|" "$SESSION_INDEX_FILE"; then
-        # Remove existing entry first
         sed -i "\|^$session_name|d" "$SESSION_INDEX_FILE"
     fi
 
@@ -704,12 +663,10 @@ update_session_index() {
     echo "$(date): Updated index for session: $session_name -> $session_file" >> /tmp/tmux_resurrect_manager.log
 }
 
-# Log script execution for debugging
 echo "$(date): tmux_resurrect_manager.sh executed with args: $@" >> /tmp/tmux_resurrect_manager.log
 list_sessions() {
     local format_mode="$1"
 
-    # Format for display in terminal
     if [ "$format_mode" != "json" ]; then
         echo "===== Current Tmux State ====="
         echo "Current tmux server information:"
@@ -720,22 +677,18 @@ list_sessions() {
 
         echo -e "\n===== Available Custom Sessions ====="
         if [ -f "$SESSION_INDEX_FILE" ]; then
-            # Adjust column widths for better fit
             echo "  NAME                 | SAVED AT                  | WIN | PANE"
             echo "  ---------------------|---------------------------|-----|------"
             grep -v "^#" "$SESSION_INDEX_FILE" | while IFS="|" read -r name file timestamp; do
                 if [ -n "$name" ] && [ -n "$file" ]; then
-                    # Get window and pane count
                     local window_count="?"
                     local pane_count="?"
                     if [ -f "${file}.meta" ]; then
                         window_count=$(grep -c "^# - .*:[0-9]*:.* ([0-9]* panes)" "${file}.meta" 2>/dev/null | wc -l | awk '{print $1}')
                         pane_count=$(grep -c "^# - .*:[0-9]*\.[0-9]* \[" "${file}.meta" 2>/dev/null || echo "?")
-                        # Fallback if counts are zero or failed
                         [ "$window_count" = "0" ] && window_count="?"
                         [ "$pane_count" = "0" ] && pane_count="?"
                     fi
-                    # Adjusted printf format
                     printf "  %-20s | %-25s | %-3s | %-4s\n" "$name" "$timestamp" "$window_count" "$pane_count"
                 fi
             done
@@ -853,7 +806,6 @@ save_session() {
 
     local temp_file=$(mktemp)
 
-    # Always save to the default location first
     run_resurrect_script "save.sh" ""
     local save_result=$?
     local latest_file=$(find_latest_session)
@@ -875,7 +827,6 @@ save_session() {
         cp "$latest_file" "$custom_file" 2>/dev/null
         local copy_result=$?
 
-        # Clean up any temporary files
         rm -f "$temp_file" 2>/dev/null
 
         if [ $copy_result -eq 0 ]; then
@@ -887,10 +838,7 @@ save_session() {
             ln -sf "$custom_file" "$DEFAULT_DIR/last"
             echo "$(date): Updated 'last' symlink to point to: $custom_file" >> /tmp/tmux_resurrect_manager.log
 
-            # Update the index
             update_session_index "$session_name" "$custom_file"
-
-            # Save shell history for this session
             save_shell_history "$session_name"
 
             echo "# Tmux session: $session_name" > "$custom_file.meta"
@@ -961,7 +909,6 @@ restore_session() {
     fi
 
     if [ -z "$session_file" ]; then
-        # If session name is "default", use the latest tmux-resurrect session
         if [ "$session_name" = "default" ]; then
             session_file=$(find_latest_session)
             if [ -n "$session_file" ] && [ -f "$session_file" ]; then
@@ -973,7 +920,6 @@ restore_session() {
                 list_sessions
                 return 1
             fi
-        # Check if it's a timestamp-based session in the default directory
         elif [[ "$session_name" =~ ^[0-9]{8}T[0-9]{6}$ ]]; then
             session_file="$DEFAULT_DIR/tmux_resurrect_${session_name}.txt"
             if [ -f "$session_file" ]; then
@@ -1087,7 +1033,6 @@ delete_session() {
     rm -f "$session_file" "${session_file}.meta" 2>/dev/null
     local delete_result=$?
 
-    # Delete shell history for this session if history isolation is enabled
     if [ "$ISOLATE_SHELL_HISTORY" = "true" ] && [ -d "$HISTORY_DIR/$session_name" ]; then
         rm -rf "$HISTORY_DIR/$session_name" 2>/dev/null
         echo "$(date): Deleted shell history for session: $session_name" >> /tmp/tmux_resurrect_manager.log
@@ -1110,17 +1055,13 @@ interactive_menu() {
         return 1
     fi
 
-    # Create a temporary directory for our files
     local tmp_dir=$(mktemp -d)
     local menu_file="$tmp_dir/menu.txt"
     local result_file="$tmp_dir/result.txt"
     local fzf_script="$tmp_dir/fzf_script.sh"
     local theme_file="$tmp_dir/theme.sh"
-
-    # Get theme colors dynamically
     eval "$(get_nvchad_colors)"
 
-    # Helper function to convert hex to ANSI RGB
     hex_to_ansi() {
         local hex="$1"
         if [ "$hex" = "reset" ]; then
@@ -1137,7 +1078,6 @@ interactive_menu() {
     }
     local reset_color=$(hex_to_ansi reset)
 
-    # Debug the theme colors
     log_theme "Theme colors before writing to vars file: HEADER=$HEADER_COLOR, TEXT=$TEXT_COLOR, BG=$BG_COLOR"
 
     cat > "$theme_file.vars" << EOF
@@ -1158,23 +1098,21 @@ HL_SELECT_COLOR="$HL_SELECT_COLOR"
 THEME_NAME="${theme_name:-$THEME_NAME}"
 EOF
 
-    # Debug the theme vars file
     log_theme "Theme vars file created with content:"
     cat "$theme_file.vars" | head -5 >> /tmp/tmux_resurrect_manager.log
 
     {
-        # Define colors using the helper
         local header_fg=$(hex_to_ansi "$HEADER_COLOR")
         local action_fg=$(hex_to_ansi "$ACTION_COLOR")
         local session_fg=$(hex_to_ansi "$SESSION_COLOR")
         local text_fg=$(hex_to_ansi "$TEXT_COLOR")
         local border_fg=$(hex_to_ansi "$BORDER_COLOR")
-        local separator="──────────────────────────────" # Simple separator line
+        local separator="──────────────────────────────"
 
         echo ""
 
         echo "${header_fg}=== SAVED SESSIONS ===${reset_color}"
-        echo "${border_fg}${separator}${reset_color}" # Separator line
+        echo "${border_fg}${separator}${reset_color}"
         local has_saved=false
 
         if [ -f "$SESSION_INDEX_FILE" ]; then
@@ -1187,7 +1125,6 @@ EOF
             if [ "$saved_sessions" -gt 0 ]; then
                 has_saved=true
 
-                # Use ripgrep if available, otherwise fall back to grep
                 if command -v rg >/dev/null 2>&1; then
                     rg -v "^#" "$SESSION_INDEX_FILE" | rg -v "^default\|" | while IFS="|" read -r name file timestamp; do
                         if [ -n "$name" ] && [ -n "$file" ] && [ "$name" != "default" ]; then
@@ -1209,12 +1146,10 @@ EOF
         if [ "$has_saved" = false ]; then
             echo "${text_fg}No saved sessions found.${reset_color}"
         fi
-        # Add blank line only if there were saved sessions
         if [ "$has_saved" = true ]; then
-             echo "" # Blank line for separation
+             echo ""
         fi
 
-        # Default session
         local latest_file=$(find_latest_session)
         if [ -n "$latest_file" ]; then
             local timestamp=$(basename "$latest_file" | sed 's/tmux_resurrect_//' | sed 's/\.txt$//')
