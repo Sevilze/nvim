@@ -7,6 +7,13 @@ local function notify(msg, level, opts)
   vim.notify(msg, level or vim.log.levels.INFO, opts)
 end
 
+-- Cache for Harpoon items to avoid repeated lookups
+local harpoon_cache = {
+  items = {},
+  last_updated = 0,
+  ttl = 1000,  -- cache lifetime in ms
+}
+
 -- Editor related plugins
 return {
   -- git stuff
@@ -34,6 +41,63 @@ return {
     dependencies = { "nvim-lua/plenary.nvim" },
     config = function()
       local harpoon = require("harpoon")
+
+      local function refresh_cache()
+        harpoon_cache.items = {}
+        local list = harpoon:list()
+        if list and list.items then
+          for _, item in ipairs(list.items) do
+            local real = vim.loop.fs_realpath(item.value)
+            if real then
+              harpoon_cache.items[real] = true
+            end
+          end
+        end
+        harpoon_cache.last_updated = vim.loop.now()
+      end
+
+      check_harpoon_list = function(file_path)
+        local now = vim.loop.now()
+        if now - harpoon_cache.last_updated > harpoon_cache.ttl then
+          refresh_cache()
+        end
+        local key = vim.loop.fs_realpath(file_path)
+        return key and harpoon_cache.items[key] or false
+      end
+
+      -- Monkey patch harpoon methods to invalidate cache
+      local list_mt = getmetatable(harpoon:list())
+      if list_mt then
+        local orig_add = list_mt.add
+        list_mt.add = function(self, ...)
+          harpoon_cache.last_updated = 0
+          return orig_add(self, ...)
+        end
+
+        local orig_remove = list_mt.remove
+        if orig_remove then
+          list_mt.remove = function(self, ...)
+            harpoon_cache.last_updated = 0
+            return orig_remove(self, ...)
+          end
+        end
+
+        local orig_remove_at = list_mt.remove_at
+        if orig_remove_at then
+          list_mt.remove_at = function(self, ...)
+            harpoon_cache.last_updated = 0
+            return orig_remove_at(self, ...)
+          end
+        end
+
+        local orig_clear = list_mt.clear
+        if orig_clear then
+          list_mt.clear = function(self, ...)
+            harpoon_cache.last_updated = 0
+            return orig_clear(self, ...)
+          end
+        end
+      end
 
       -- Simple Harpoon setup focused on buffer list saving
       harpoon:setup({
@@ -249,6 +313,31 @@ return {
       local sorters = require("telescope.sorters")
       local make_entry = require("telescope.make_entry")
 
+      -- Override the default file entry maker to include a checkmark for harpoon files
+      local original_file_maker = make_entry.gen_from_file
+      make_entry.gen_from_file = function(opts)
+        local entry_maker = original_file_maker(opts)
+        return function(line)
+          local entry = entry_maker(line)
+          local original_display = entry.display
+
+          entry.display = function(self)
+            local display_output, display_hl = original_display(self)
+
+            if check_harpoon_list(self.path) then
+              display_output = display_output .. " ✓"
+              if not display_hl then display_hl = {} end
+              local display_len = #display_output
+              table.insert(display_hl, { { display_len - 1, display_len }, "TelescopeResultsIdentifier" })
+            end
+
+            return display_output, display_hl
+          end
+
+          return entry
+        end
+      end
+
       telescope.setup({
         defaults = {
           vimgrep_arguments = {
@@ -272,8 +361,8 @@ return {
           path_display = { "smart" },
           mappings = {
             i = {
-              ["<leader>a"] = function()
-                local selection = action_state.get_selected_entry()
+              ["<leader>a"] = function(prompt_bufnr)
+                local selection = action_state.get_selected_entry(prompt_bufnr)
                 if selection and selection.path then
                   vim.schedule(function()
                     local harpoon = require("harpoon")
@@ -281,7 +370,44 @@ return {
                       value = selection.path,
                       context = { text = "" }
                     })
+                    -- Harpoon cache is automatically invalidated
                     vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
+
+                    -- Refresh the picker to show the checkmark while maintaining selection
+                    local picker = action_state.get_current_picker(prompt_bufnr)
+                    if picker then
+                      local selection_index = picker:get_selection_row()
+                      picker:refresh()
+                      picker:set_selection(selection_index)
+                    end
+                  end)
+                end
+              end,
+              ["<leader>r"] = function(prompt_bufnr)
+                local selection = action_state.get_selected_entry(prompt_bufnr)
+                if selection and selection.path then
+                  vim.schedule(function()
+                    local harpoon = require("harpoon")
+                    local list = harpoon:list()
+
+                    -- Find the item in the list
+                    local normalized_path = vim.loop.fs_realpath(selection.path)
+                    for i, item in ipairs(list.items) do
+                      local item_path = vim.loop.fs_realpath(item.value)
+                      if item_path == normalized_path then
+                        list:remove_at(i)
+                        vim.notify("Removed " .. vim.fs.basename(selection.path) .. " from Harpoon", vim.log.levels.INFO)
+                        break
+                      end
+                    end
+
+                    -- Refresh the picker to update the display while maintaining selection
+                    local picker = action_state.get_current_picker(prompt_bufnr)
+                    if picker then
+                      local selection_index = picker:get_selection_row()
+                      picker:refresh()
+                      picker:set_selection(selection_index)
+                    end
                   end)
                 end
               end,
@@ -312,6 +438,7 @@ return {
                     }
 
                     require("harpoon"):list():add(item)
+                    -- Harpoon cache is automatically invalidated
                     vim.notify("Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon", vim.log.levels.INFO)
                   end
                 end,
@@ -385,19 +512,29 @@ return {
           -- Create entry maker function
           local make_display = function(entry)
             local icon, icon_hl = devicons.get_icon(entry.filename, entry.ext, { default = true })
+            local in_harpoon = check_harpoon_list(entry.path)
 
             local displayer = entry_display.create({
               separator = " ",
               items = {
                 { width = 2 },
-                { remaining = true }
+                { remaining = true },
+                { width = in_harpoon and 2 or 0 }
               }
             })
 
-            return displayer({
-              { icon, icon_hl },
-              entry.filename
-            })
+            if in_harpoon then
+              return displayer({
+                { icon, icon_hl },
+                entry.filename,
+                { "✓", "TelescopeResultsIdentifier" }
+              })
+            else
+              return displayer({
+                { icon, icon_hl },
+                entry.filename
+              })
+            end
           end
 
           -- Entry maker function
@@ -601,8 +738,39 @@ return {
                     value = selection.path,
                     context = { text = "" }
                   })
-
                   vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
+
+                  local selection_index = current_picker:get_selection_row()
+                  current_picker:refresh(finders.new_table({
+                    results = all_files,
+                    entry_maker = entry_maker,
+                  }), { reset_prompt = false })
+                  current_picker:set_selection(selection_index)
+                end
+              end)
+
+              map("i", "<leader>r", function()
+                local selection = action_state.get_selected_entry()
+                if selection then
+                  local harpoon = require("harpoon")
+                  local list = harpoon:list()
+
+                  local normalized_path = vim.loop.fs_realpath(selection.path)
+                  for i, item in ipairs(list.items) do
+                    local item_path = vim.loop.fs_realpath(item.value)
+                    if item_path == normalized_path then
+                      list:remove_at(i)
+                      vim.notify("Removed " .. vim.fs.basename(selection.path) .. " from Harpoon", vim.log.levels.INFO)
+                      break
+                    end
+                  end
+
+                  local selection_index = current_picker:get_selection_row()
+                  current_picker:refresh(finders.new_table({
+                    results = all_files,
+                    entry_maker = entry_maker,
+                  }), { reset_prompt = false })
+                  current_picker:set_selection(selection_index)
                 end
               end)
 
