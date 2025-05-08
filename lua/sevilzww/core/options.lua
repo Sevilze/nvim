@@ -2,6 +2,10 @@
 require "nvchad.options"
 
 vim.g.augment_workspace_folders = { vim.fn.expand("~/.config/nvim") }
+-- Initialize global autosave state (true = enabled)
+if vim.g.autosave_state == nil then
+  vim.g.autosave_state = true
+end
 local opt = vim.opt
 
 opt.number = true
@@ -64,3 +68,35 @@ opt.cursorline = true
 opt.scrolloff = 8        -- Keep 8 lines above/below cursor when scrolling
 opt.sidescrolloff = 8    -- Keep 8 columns left/right of cursor when scrolling horizontally
 opt.signcolumn = "yes"   -- Always show the sign column to avoid text shifting
+
+-- Create an autosave autocmd group
+local autosave_group = vim.api.nvim_create_augroup("CoreAutosave", { clear = true })
+vim.api.nvim_create_autocmd({"InsertLeave", "TextChanged", "FocusLost"}, {
+  group = autosave_group,
+  pattern = "*",
+  callback = function()
+    if vim.g.autosave_state == false then
+      return
+    end
+
+    if vim.tbl_contains({ "TelescopePrompt", "gitcommit", "gitrebase", "harpoon", "nvdash" }, vim.bo.filetype) then
+      return
+    end
+
+    if vim.tbl_contains({ "prompt", "nofile", "help", "quickfix", "terminal" }, vim.bo.buftype) then
+      return
+    end
+
+    if vim.bo.readonly then
+      return
+    end
+
+    if vim.fn.expand("%") == "" then
+      return
+    end
+
+    if vim.bo.modified then
+      vim.cmd("write")
+    end
+  end,
+})

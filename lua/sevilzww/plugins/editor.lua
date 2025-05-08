@@ -67,17 +67,19 @@ return {
 
       -- Monkey patch harpoon methods to invalidate cache
       local list_mt = getmetatable(harpoon:list())
+      local cache = harpoon_cache
+
       if list_mt then
         local orig_add = list_mt.add
         list_mt.add = function(self, ...)
-          harpoon_cache.last_updated = 0
+          cache.last_updated = 0
           return orig_add(self, ...)
         end
 
         local orig_remove = list_mt.remove
         if orig_remove then
           list_mt.remove = function(self, ...)
-            harpoon_cache.last_updated = 0
+            cache.last_updated = 0
             return orig_remove(self, ...)
           end
         end
@@ -85,7 +87,7 @@ return {
         local orig_remove_at = list_mt.remove_at
         if orig_remove_at then
           list_mt.remove_at = function(self, ...)
-            harpoon_cache.last_updated = 0
+            cache.last_updated = 0
             return orig_remove_at(self, ...)
           end
         end
@@ -93,7 +95,7 @@ return {
         local orig_clear = list_mt.clear
         if orig_clear then
           list_mt.clear = function(self, ...)
-            harpoon_cache.last_updated = 0
+            cache.last_updated = 0
             return orig_clear(self, ...)
           end
         end
@@ -161,7 +163,21 @@ return {
                 list:clear()
 
                 for _, item in ipairs(data.mark.items) do
-                  list:add(item)
+                  local value, context
+                  local success, result = pcall(function()
+                    if type(item) == "table" then
+                      return { value = item.value, context = item.context }
+                    else
+                      return { value = tostring(item), context = nil }
+                    end
+                  end)
+
+                  if success and result.value then
+                    list:add({
+                      value = result.value,
+                      context = result.context or { text = "" }
+                    })
+                  end
                 end
 
                 notify("Loaded " .. #data.mark.items .. " items from Harpoon for " .. project_name)
@@ -190,8 +206,23 @@ return {
         local harpoon = require("harpoon")
         local list = harpoon:list()
         if list and list.items and #list.items > 0 then
-          current_list = list.items
-          return true
+          current_list = {}
+          for _, item in ipairs(list.items) do
+            local success, result = pcall(function()
+              local value = item.value
+              local context = item.context or { text = "" }
+              return { value = value, context = context }
+            end)
+
+            if success and result.value then
+              table.insert(current_list, {
+                value = result.value,
+                context = result.context
+              })
+            end
+          end
+
+          return #current_list > 0
         else
           current_list = nil
           return false
@@ -372,14 +403,6 @@ return {
                     })
                     -- Harpoon cache is automatically invalidated
                     vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
-
-                    -- Refresh the picker to show the checkmark while maintaining selection
-                    local picker = action_state.get_current_picker(prompt_bufnr)
-                    if picker then
-                      local selection_index = picker:get_selection_row()
-                      picker:refresh()
-                      picker:set_selection(selection_index)
-                    end
                   end)
                 end
               end,
@@ -390,7 +413,6 @@ return {
                     local harpoon = require("harpoon")
                     local list = harpoon:list()
 
-                    -- Find the item in the list
                     local normalized_path = vim.loop.fs_realpath(selection.path)
                     for i, item in ipairs(list.items) do
                       local item_path = vim.loop.fs_realpath(item.value)
@@ -399,14 +421,6 @@ return {
                         vim.notify("Removed " .. vim.fs.basename(selection.path) .. " from Harpoon", vim.log.levels.INFO)
                         break
                       end
-                    end
-
-                    -- Refresh the picker to update the display while maintaining selection
-                    local picker = action_state.get_current_picker(prompt_bufnr)
-                    if picker then
-                      local selection_index = picker:get_selection_row()
-                      picker:refresh()
-                      picker:set_selection(selection_index)
                     end
                   end)
                 end
@@ -438,7 +452,6 @@ return {
                     }
 
                     require("harpoon"):list():add(item)
-                    -- Harpoon cache is automatically invalidated
                     vim.notify("Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon", vim.log.levels.INFO)
                   end
                 end,
@@ -739,13 +752,6 @@ return {
                     context = { text = "" }
                   })
                   vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
-
-                  local selection_index = current_picker:get_selection_row()
-                  current_picker:refresh(finders.new_table({
-                    results = all_files,
-                    entry_maker = entry_maker,
-                  }), { reset_prompt = false })
-                  current_picker:set_selection(selection_index)
                 end
               end)
 
@@ -764,13 +770,6 @@ return {
                       break
                     end
                   end
-
-                  local selection_index = current_picker:get_selection_row()
-                  current_picker:refresh(finders.new_table({
-                    results = all_files,
-                    entry_maker = entry_maker,
-                  }), { reset_prompt = false })
-                  current_picker:set_selection(selection_index)
                 end
               end)
 

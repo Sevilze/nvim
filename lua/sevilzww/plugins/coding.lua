@@ -308,18 +308,42 @@ return {
   -- formatting
   {
     "stevearc/conform.nvim",
-    opts = {
-      formatters_by_ft = {
-        lua = { "stylua" },
-        -- css = { "prettier" },
-        -- html = { "prettier" },
+    event = { "BufWritePre" },
+    cmd = { "ConformInfo" },
+    keys = {
+      {
+        "<leader>fm",
+        function()
+          require("conform").format({ async = true, lsp_fallback = true })
+        end,
+        mode = { "n", "v" },
+        desc = "Format buffer",
       },
-      -- format_on_save = {
-      --   -- These options will be passed to conform.format()
-      --   timeout_ms = 500,
-      --   lsp_fallback = true,
-      -- },
     },
+    opts = function()
+      local conform_config = require("sevilzww.configs.conform")
+
+      return {
+        formatters_by_ft = conform_config.formatters_by_ft,
+        format_on_save = conform_config.format_on_save,
+        notify_on_error = true,
+        format_after_save = false,
+      }
+    end,
+    config = function(_, opts)
+      local conform = require("conform")
+      conform.setup(opts)
+
+      vim.api.nvim_create_user_command("ToggleFormatOnSave", function()
+        if conform.opts.format_on_save == false or conform.opts.format_on_save == nil then
+          conform.opts.format_on_save = require("sevilzww.configs.conform").format_on_save
+          vim.notify("Format on save enabled", vim.log.levels.INFO)
+        else
+          conform.opts.format_on_save = false
+          vim.notify("Format on save disabled", vim.log.levels.INFO)
+        end
+      end, { desc = "Toggle format on save" })
+    end,
   },
 
   -- load luasnips + cmp related in insert mode only

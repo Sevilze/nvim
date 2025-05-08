@@ -2,6 +2,9 @@
 vim.g.base46_cache = vim.fn.stdpath "data" .. "/base46/"
 vim.g.mapleader = " "
 
+-- Load Mason configuration early so commands are always available
+require "sevilzww.core.mason"
+
 -- Load the core configuration
 require("sevilzww.core.lazy").setup()
 require "nvchad.autocmds"
