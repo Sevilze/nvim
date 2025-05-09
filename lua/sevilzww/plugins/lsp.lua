@@ -8,33 +8,209 @@ return {
 
       local lspconfig = require "lspconfig"
 
-      -- EXAMPLE
-      local servers = { "html", "cssls" }
+      -- Main language servers
+      local servers = {
+        "html", "cssls",           -- Web
+        "pyright",                 -- Python
+        "clangd",                  -- C/C++
+        -- "rust_analyzer" is now handled by rustaceanvim
+        "tsserver",                -- TypeScript/JavaScript
+        "jdtls",                   -- Java
+        "jsonls",                  -- JSON
+        "lua_ls"                   -- Lua
+      }
       local nvlsp = require "nvchad.configs.lspconfig"
+
+      -- Create a custom on_attach function that extends the NvChad one
+      local custom_on_attach = function(client, bufnr)
+        nvlsp.on_attach(client, bufnr)
+      end
 
       -- lsps with default config
       for _, lsp in ipairs(servers) do
         lspconfig[lsp].setup {
-          on_attach = nvlsp.on_attach,
+          on_attach = custom_on_attach,
           on_init = nvlsp.on_init,
           capabilities = nvlsp.capabilities,
         }
       end
 
-      -- configuring single server, example: typescript
-      -- lspconfig.ts_ls.setup {
-      --   on_attach = nvlsp.on_attach,
-      --   on_init = nvlsp.on_init,
-      --   capabilities = nvlsp.capabilities,
-      -- }
-    end,
-  },
+      -- Python (pyright) configuration
+      pcall(function()
+        lspconfig.pyright.setup {
+          on_attach = custom_on_attach,
+          on_init = nvlsp.on_init,
+          capabilities = nvlsp.capabilities,
+          settings = {
+            python = {
+              analysis = {
+                typeCheckingMode = "basic",
+                autoSearchPaths = true,
+                useLibraryCodeForTypes = true,
+              },
+            },
+          },
+        }
+      end)
 
-  {
-    "williamboman/mason.nvim",
-    cmd = { "Mason", "MasonInstall", "MasonUpdate" },
-    opts = function()
-      return require "nvchad.configs.mason"
+      -- C/C++ (clangd) configuration
+      pcall(function()
+        lspconfig.clangd.setup {
+          on_attach = custom_on_attach,
+          on_init = nvlsp.on_init,
+          capabilities = nvlsp.capabilities,
+          cmd = {
+            "clangd",
+            "--background-index",
+            "--suggest-missing-includes",
+            "--clang-tidy",
+            "--header-insertion=iwyu",
+          },
+        }
+      end)
+
+      -- Rust configuration is now handled by rustaceanvim plugin
+      -- See lua/sevilzww/plugins/rust.lua for details
+
+      -- TypeScript/JavaScript (tsserver) configuration
+      -- Check if tsserver is available before configuring
+      pcall(function()
+        lspconfig.tsserver.setup {
+          on_attach = custom_on_attach,
+          on_init = nvlsp.on_init,
+          capabilities = nvlsp.capabilities,
+          settings = {
+            typescript = {
+              inlayHints = {
+                includeInlayParameterNameHints = "all",
+                includeInlayParameterNameHintsWhenArgumentMatchesName = false,
+                includeInlayFunctionParameterTypeHints = true,
+                includeInlayVariableTypeHints = true,
+                includeInlayPropertyDeclarationTypeHints = true,
+                includeInlayFunctionLikeReturnTypeHints = true,
+                includeInlayEnumMemberValueHints = true,
+              },
+            },
+            javascript = {
+              inlayHints = {
+                includeInlayParameterNameHints = "all",
+                includeInlayParameterNameHintsWhenArgumentMatchesName = false,
+                includeInlayFunctionParameterTypeHints = true,
+                includeInlayVariableTypeHints = true,
+                includeInlayPropertyDeclarationTypeHints = true,
+                includeInlayFunctionLikeReturnTypeHints = true,
+                includeInlayEnumMemberValueHints = true,
+              },
+            },
+          },
+        }
+      end)
+
+      -- Java (jdtls) configuration
+      pcall(function()
+        lspconfig.jdtls.setup {
+          on_attach = custom_on_attach,
+          on_init = nvlsp.on_init,
+          capabilities = nvlsp.capabilities,
+        }
+      end)
+
+      -- Lua (lua_ls) configuration
+      pcall(function()
+        lspconfig.lua_ls.setup {
+          on_attach = custom_on_attach,
+          on_init = nvlsp.on_init,
+          capabilities = nvlsp.capabilities,
+          settings = {
+            Lua = {
+              diagnostics = {
+                globals = { "vim" },
+              },
+              workspace = {
+                library = {
+                  [vim.fn.expand("$VIMRUNTIME/lua")] = true,
+                  [vim.fn.expand("$VIMRUNTIME/lua/vim/lsp")] = true,
+                  [vim.fn.stdpath("data") .. "/lazy/ui/nvchad_types"] = true,
+                  [vim.fn.stdpath("data") .. "/lazy/lazy.nvim/lua/lazy"] = true,
+                },
+                maxPreload = 100000,
+                preloadFileSize = 10000,
+              },
+            },
+          },
+        }
+      end)
+
+      -- Set up auto-refresh for diagnostic list
+      local diagnostic_list_open = false
+      local diagnostic_list_bufnr = nil
+      local diagnostic_list_winnr = nil
+      local auto_refresh_enabled = true
+
+      -- Function to check if the diagnostic list is open
+      local function is_diagnostic_list_open()
+        if diagnostic_list_bufnr and vim.api.nvim_buf_is_valid(diagnostic_list_bufnr) then
+          local wins = vim.fn.win_findbuf(diagnostic_list_bufnr)
+          if #wins > 0 then
+            diagnostic_list_winnr = wins[1]
+            return true
+          end
+        end
+        return false
+      end
+
+      -- Function to refresh the diagnostic list if it's open
+      local function refresh_diagnostic_list()
+        if auto_refresh_enabled and is_diagnostic_list_open() then
+          vim.diagnostic.setloclist({ open = false })
+        end
+      end
+
+      -- Create autocmd to track when the diagnostic list is opened
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = "qf",
+        callback = function(args)
+          local buf = args.buf
+          local is_loclist = vim.fn.getloclist(0, { filewinid = 0 }).filewinid ~= 0
+
+          if is_loclist then
+            -- Check if this is a diagnostic list
+            local items = vim.fn.getloclist(0)
+            -- Safely check if this is a diagnostic list
+            if #items > 0 and items[1] and (items[1].type == "E" or items[1].type == "W") then
+              diagnostic_list_bufnr = buf
+              diagnostic_list_open = true
+
+              -- Set up autocmd to detect when the list is closed
+              vim.api.nvim_create_autocmd("BufWipeout", {
+                buffer = buf,
+                once = true,
+                callback = function()
+                  diagnostic_list_open = false
+                  diagnostic_list_bufnr = nil
+                  diagnostic_list_winnr = nil
+                end,
+              })
+            end
+          end
+        end,
+      })
+
+      -- Create autocmd to refresh the diagnostic list when diagnostics change
+      local diagnostic_refresh_augroup = vim.api.nvim_create_augroup("DiagnosticListRefresh", { clear = true })
+      vim.api.nvim_create_autocmd("DiagnosticChanged", {
+        group = diagnostic_refresh_augroup,
+        callback = function()
+          vim.defer_fn(refresh_diagnostic_list, 100)
+        end,
+      })
+
+      -- Create user command to toggle auto-refresh
+      vim.api.nvim_create_user_command("ToggleDiagnosticAutoRefresh", function()
+        auto_refresh_enabled = not auto_refresh_enabled
+        local status = auto_refresh_enabled and "enabled" or "disabled"
+        vim.notify("Diagnostic list auto-refresh " .. status, vim.log.levels.INFO)
+      end, { desc = "Toggle automatic refresh of diagnostic list" })
     end,
   },
 }
