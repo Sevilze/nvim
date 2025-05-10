@@ -1,7 +1,26 @@
 -- LSP mappings
 local map = vim.keymap.set
 
-map("n", "<leader>ds", vim.diagnostic.setloclist, { desc = "LSP diagnostic loclist" })
+-- Function to toggle the diagnostic list globally
+local function toggle_diagnostic_list()
+  local wins = vim.fn.getloclist(0, { winid = 0 })
+  local is_loclist_open = wins.winid ~= 0
+
+  if is_loclist_open then
+    vim.cmd("lclose")
+    vim.notify("Diagnostic list closed", vim.log.levels.INFO)
+  else
+    local diagnostics = vim.diagnostic.get()
+    if #diagnostics > 0 then
+      vim.diagnostic.setloclist({ open = true })
+      vim.notify("Diagnostic list opened", vim.log.levels.INFO)
+    else
+      vim.notify("No diagnostics to display", vim.log.levels.INFO)
+    end
+  end
+end
+
+map("n", "<leader>ds", toggle_diagnostic_list, { desc = "Toggle diagnostic list" })
 map("n", "<leader>dr", function()
   local diagnostics = vim.diagnostic.get()
 
@@ -13,7 +32,6 @@ map("n", "<leader>dr", function()
     vim.notify("No diagnostics to display", vim.log.levels.INFO)
   end
 end, { desc = "Refresh diagnostic loclist" })
-map("n", "<leader>dt", "<cmd>ToggleDiagnosticAutoRefresh<CR>", { desc = "Toggle diagnostic auto-refresh" })
 
 -- Mason mappings
 map("n", "<leader>lm", "<cmd>Mason<CR>", { desc = "Open Mason" })

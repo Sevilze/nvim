@@ -57,7 +57,6 @@ map("n", "<leader>ch", "<cmd>NvCheatsheet<CR>", { desc = "toggle nvcheatsheet" }
 require("sevilzww.mappings.nvimtree")
 require("sevilzww.mappings.buffers")
 require("sevilzww.mappings.terminal")
-require("sevilzww.mappings.cmdline")  -- Command-line mode mappings
 require("sevilzww.mappings.lsp")
 require("sevilzww.mappings.harpoon")
 require("sevilzww.mappings.augment")

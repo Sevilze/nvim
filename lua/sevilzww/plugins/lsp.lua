@@ -2,9 +2,17 @@
 return {
   {
     "neovim/nvim-lspconfig",
+    lazy = false,
     config = function()
-      -- load defaults i.e lua_lsp
-      require("nvchad.configs.lspconfig").defaults()
+      local nvchad_lsp = require("nvchad.configs.lspconfig")
+      dofile(vim.g.base46_cache .. "lsp")
+      require("nvchad.lsp").diagnostic_config()
+
+      vim.api.nvim_create_autocmd("LspAttach", {
+        callback = function(args)
+          nvchad_lsp.on_attach(_, args.buf)
+        end,
+      })
 
       local lspconfig = require "lspconfig"
 
@@ -13,7 +21,6 @@ return {
         "html", "cssls",           -- Web
         "pyright",                 -- Python
         "clangd",                  -- C/C++
-        -- "rust_analyzer" is now handled by rustaceanvim
         "tsserver",                -- TypeScript/JavaScript
         "jdtls",                   -- Java
         "jsonls",                  -- JSON
@@ -69,9 +76,6 @@ return {
         }
       end)
 
-      -- Rust configuration is now handled by rustaceanvim plugin
-      -- See lua/sevilzww/plugins/rust.lua for details
-
       -- TypeScript/JavaScript (tsserver) configuration
       -- Check if tsserver is available before configuring
       pcall(function()
@@ -117,10 +121,15 @@ return {
 
       -- Lua (lua_ls) configuration
       pcall(function()
+        local mason_path = vim.fn.stdpath("data") .. "/mason"
+        local lua_ls_path = mason_path .. "/packages/lua-language-server"
+        local lua_ls_binary = lua_ls_path .. "/lua-language-server"
+
         lspconfig.lua_ls.setup {
           on_attach = custom_on_attach,
           on_init = nvlsp.on_init,
           capabilities = nvlsp.capabilities,
+          cmd = { lua_ls_binary, "-E", lua_ls_path .. "/libexec/main.lua" },
           settings = {
             Lua = {
               diagnostics = {
@@ -201,16 +210,9 @@ return {
       vim.api.nvim_create_autocmd("DiagnosticChanged", {
         group = diagnostic_refresh_augroup,
         callback = function()
-          vim.defer_fn(refresh_diagnostic_list, 100)
+          vim.schedule(refresh_diagnostic_list)
         end,
       })
-
-      -- Create user command to toggle auto-refresh
-      vim.api.nvim_create_user_command("ToggleDiagnosticAutoRefresh", function()
-        auto_refresh_enabled = not auto_refresh_enabled
-        local status = auto_refresh_enabled and "enabled" or "disabled"
-        vim.notify("Diagnostic list auto-refresh " .. status, vim.log.levels.INFO)
-      end, { desc = "Toggle automatic refresh of diagnostic list" })
     end,
   },
 }

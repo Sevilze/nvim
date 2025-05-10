@@ -5,17 +5,14 @@ return {
     lazy = false,
     config = function()
       local autosave = require("auto-save")
-
-      -- Initialize global state variable
       vim.g.autosave_state = true
 
       autosave.setup({
         enabled = true,
+        write_cmd = "write",
         execution_message = {
-          message = function()
-            return ("AutoSave: saved at " .. vim.fn.strftime("%H:%M:%S"))
-          end,
-          dim = 0.18,
+          message = function() return "" end,
+          dim = 0,
           cleaning_interval = 1250,
         },
         -- More frequent trigger events for better responsiveness
@@ -47,8 +44,8 @@ return {
             return false
           end
 
-          -- Don't save if buffer has no path (is not a file)
-          if utils.not_in(fn.expand("%:p"), {""}) then
+          -- Don’t save if buffer has no path
+          if fn.expand("%:p") == "" then
             return false
           end
 
@@ -70,21 +67,7 @@ return {
           return true
         end,
         write_all_buffers = false,
-        -- Shorter debounce for more responsive saving
-        debounce_delay = 500,
-        callbacks = {
-          enabling = function()
-            vim.g.autosave_state = true
-            vim.notify("AutoSave enabled", vim.log.levels.INFO)
-          end,
-          disabling = function()
-            vim.g.autosave_state = false
-            vim.notify("AutoSave disabled", vim.log.levels.INFO)
-          end,
-          before_asserting_save = nil,
-          before_saving = nil,
-          after_saving = nil,
-        },
+        debounce_delay = 100,
       })
 
       -- Add command to toggle autosave
@@ -93,8 +76,10 @@ return {
 
         if vim.g.autosave_state then
           autosave.on()
+          vim.notify("Autosave enabled.", vim.log.levels.INFO)
         else
           autosave.off()
+          vim.notify("Autosave disabled.", vim.log.levels.INFO)
         end
       end, { desc = "Toggle AutoSave" })
     end,
