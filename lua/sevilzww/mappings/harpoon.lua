@@ -22,8 +22,15 @@ local function jump_to_context(item)
 end
 
 local function notify(msg, level)
+  local timeout = 1000
+  if level == vim.log.levels.ERROR then
+    timeout = 5000
+  elseif level == vim.log.levels.WARN then
+    timeout = 3000
+  end
+
   vim.notify(msg, level or vim.log.levels.INFO, {
-    timeout = 1000,
+    timeout = timeout,
   })
 end
 

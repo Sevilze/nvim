@@ -99,13 +99,29 @@ return {
       notify.setup({
         background_colour = "#000000",
         max_width = 80,
-        timeout = 100,
+        timeout = 500,
         render = "default",
         stages = "fade_in_slide_out",
         top_down = true,
       })
 
-      vim.notify = notify
+      -- Override the vim.notify function to handle different timeouts based on message level
+      local orig_notify = notify
+      vim.notify = function(msg, level, opts)
+        opts = opts or {}
+
+        if opts.timeout == nil then
+          if level == vim.log.levels.ERROR then
+            opts.timeout = 5000
+          elseif level == vim.log.levels.WARN then
+            opts.timeout = 3000
+          else
+            opts.timeout = 500
+          end
+        end
+
+        return orig_notify(msg, level, opts)
+      end
     end,
   },
 

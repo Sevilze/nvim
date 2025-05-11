@@ -1,7 +1,17 @@
 local function notify(msg, level, opts)
   opts = opts or {}
   opts.title = opts.title or "Harpoon"
-  opts.timeout = opts.timeout or 100
+
+  if not opts.timeout then
+    if level == vim.log.levels.ERROR then
+      opts.timeout = 5000 
+    elseif level == vim.log.levels.WARN then
+      opts.timeout = 3000
+    else
+      opts.timeout = 500
+    end
+  end
+
   opts.icon = opts.icon or "󱡅"
 
   vim.notify(msg, level or vim.log.levels.INFO, opts)
