@@ -150,13 +150,65 @@ return {
         }
       end)
 
+      pcall(function()
+        local home_dir = vim.fn.expand("$HOME")
+        local flutter_dir = home_dir .. "/flutter"
+        local dart_sdk = flutter_dir .. "/bin/cache/dart-sdk"
+        local dart_bin = dart_sdk .. "/bin/dart"
+
+        if vim.fn.filereadable(dart_bin) == 1 then
+          vim.fn.system("chmod +x " .. dart_bin)
+
+          lspconfig.dartls.setup {
+            on_attach = custom_on_attach,
+            on_init = nvlsp.on_init,
+            capabilities = nvlsp.capabilities,
+            cmd = { dart_bin, "language-server", "--protocol=lsp" },
+            init_options = {
+              onlyAnalyzeProjectsWithOpenFiles = true,
+              suggestFromUnimportedLibraries = true,
+              closingLabels = true,
+              outline = true,
+              flutterOutline = true,
+            },
+            settings = {
+              dart = {
+                completeFunctionCalls = true,
+                showTodos = true,
+                lineLength = 100,
+                enableSdkFormatter = true,
+                updateImportsOnRename = true,
+                renameFilesWithClasses = "prompt",
+                analysisExcludedFolders = {
+                  vim.fn.expand("$HOME/flutter/packages"),
+                  vim.fn.expand("$HOME/.pub-cache"),
+                },
+              },
+            },
+          }
+
+          vim.api.nvim_create_user_command("DartLspRestart", function()
+            local clients = vim.lsp.get_clients({ name = "dartls" })
+            for _, client in ipairs(clients) do
+              vim.lsp.stop_client(client.id, true)
+            end
+
+            vim.schedule(function()
+              vim.cmd("edit")
+              vim.notify("Dart LSP restarted", vim.log.levels.INFO)
+            end)
+          end, { desc = "Restart the Dart LSP" })
+        else
+          vim.notify("Dart SDK not found at " .. dart_bin .. ". LSP features for Dart/Flutter won't work.", vim.log.levels.WARN)
+        end
+      end)
+
       -- Set up auto-refresh for diagnostic list
       local diagnostic_list_open = false
       local diagnostic_list_bufnr = nil
       local diagnostic_list_winnr = nil
       local auto_refresh_enabled = true
 
-      -- Function to check if the diagnostic list is open
       local function is_diagnostic_list_open()
         if diagnostic_list_bufnr and vim.api.nvim_buf_is_valid(diagnostic_list_bufnr) then
           local wins = vim.fn.win_findbuf(diagnostic_list_bufnr)
@@ -168,7 +220,6 @@ return {
         return false
       end
 
-      -- Function to refresh the diagnostic list if it's open
       local function refresh_diagnostic_list()
         if auto_refresh_enabled and is_diagnostic_list_open() then
           vim.diagnostic.setloclist({ open = false })
@@ -183,7 +234,6 @@ return {
           local is_loclist = vim.fn.getloclist(0, { filewinid = 0 }).filewinid ~= 0
 
           if is_loclist then
-            -- Check if this is a diagnostic list
             local items = vim.fn.getloclist(0)
             -- Safely check if this is a diagnostic list
             if #items > 0 and items[1] and (items[1].type == "E" or items[1].type == "W") then

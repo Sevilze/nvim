@@ -15,6 +15,7 @@ end, { desc = "buffer goto prev" })
 map("n", "<leader>x", function()
   require("nvchad.tabufline").close_buffer()
 end, { desc = "buffer close" })
+map("n", "<leader><leader>x", "<cmd>q<CR>", { desc = "quit window" })
 
 -- Comment
 map("n", "<leader>/", "gcc", { desc = "toggle comment", remap = true })

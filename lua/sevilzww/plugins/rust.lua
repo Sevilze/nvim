@@ -100,11 +100,4 @@ return {
       end, { desc = "Stop debugging Rust program" })
     end
   },
-
-  {
-    "mfussenegger/nvim-dap",
-    ft = {"rust"},
-    config = function()
-    end
-  },
 }
