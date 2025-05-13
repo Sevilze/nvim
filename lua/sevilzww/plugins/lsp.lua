@@ -21,7 +21,7 @@ return {
         "html", "cssls",           -- Web
         "pyright",                 -- Python
         "clangd",                  -- C/C++
-        "tsserver",                -- TypeScript/JavaScript
+        "ts_ls",                   -- TypeScript/JavaScript
         "jdtls",                   -- Java
         "jsonls",                  -- JSON
         "lua_ls"                   -- Lua
@@ -76,10 +76,9 @@ return {
         }
       end)
 
-      -- TypeScript/JavaScript (tsserver) configuration
-      -- Check if tsserver is available before configuring
+      -- TypeScript/JavaScript (ts_ls) configuration
       pcall(function()
-        lspconfig.tsserver.setup {
+        lspconfig.ts_ls.setup {
           on_attach = custom_on_attach,
           on_init = nvlsp.on_init,
           capabilities = nvlsp.capabilities,

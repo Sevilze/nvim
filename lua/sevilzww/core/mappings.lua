@@ -10,6 +10,7 @@ map("i", "<C-h>", "<Left>", { desc = "move left" })
 map("i", "<C-l>", "<Right>", { desc = "move right" })
 map("i", "<C-j>", "<Down>", { desc = "move down" })
 map("i", "<C-k>", "<Up>", { desc = "move up" })
+map("i", "jk", "<Esc>", { desc = "escape insert mode" })
 
 -- Undo and redo in insert mode
 map("i", "<C-z>", "<C-o>u", { desc = "undo in insert mode" })

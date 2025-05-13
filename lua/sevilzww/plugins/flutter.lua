@@ -6,14 +6,10 @@ return {
     ft = {"dart"},
     dependencies = {
       'nvim-lua/plenary.nvim',
-      'stevearc/dressing.nvim',  -- Optional for better UI
-      'nvim-neotest/nvim-nio',   -- Required for latest version
+      'stevearc/dressing.nvim',
+      'nvim-neotest/nvim-nio',
     },
     config = function()
-      -- Setup Android SDK environment variables
-      require("sevilzww.core.android_env").setup()
-
-      -- Check if Flutter exists in the home directory
       local home_dir = vim.fn.expand("$HOME")
       local flutter_dir = home_dir .. "/flutter"
       local flutter_bin_dir = flutter_dir .. "/bin"
@@ -21,71 +17,23 @@ return {
       local dart_sdk = flutter_dir .. "/bin/cache/dart-sdk"
       local dart_bin = dart_sdk .. "/bin/dart"
 
-      -- Check if Flutter is installed
       if vim.fn.filereadable(flutter_bin) == 1 then
-        -- Make sure the executables have proper permissions
-        vim.fn.system("chmod +x " .. flutter_bin)
-        if vim.fn.filereadable(dart_bin) == 1 then
-          vim.fn.system("chmod +x " .. dart_bin)
-        end
 
         -- Add Flutter to PATH for this session if not already there
         if vim.fn.exepath('flutter') == "" then
           vim.env.PATH = vim.env.PATH .. ":" .. flutter_bin_dir
           vim.notify("Added Flutter to PATH for this session: " .. flutter_bin_dir, vim.log.levels.INFO)
-        else
-          vim.notify("Flutter found in PATH", vim.log.levels.INFO)
         end
 
-        -- Check if Dart SDK is available
-        if vim.fn.isdirectory(dart_sdk) == 1 then
-          vim.notify("Dart SDK found at " .. dart_sdk, vim.log.levels.INFO)
-        else
+        if vim.fn.isdirectory(dart_sdk) ~= 1 then
           vim.notify("Dart SDK not found at " .. dart_sdk .. ". Some features may not work correctly.", vim.log.levels.WARN)
         end
       else
         vim.notify("Flutter not found at " .. flutter_bin .. ". Some features may not work correctly.", vim.log.levels.WARN)
       end
 
-      -- Create a custom error handler to suppress specific errors
-      local function suppress_errors(err, method)
-        -- List of errors to suppress
-        local suppress_patterns = {
-          "textDocument/documentColor",
-          "not found: \"textDocument/documentColor\" request handler"
-        }
-
-        -- Check if the error message contains any of the patterns to suppress
-        for _, pattern in ipairs(suppress_patterns) do
-          if err and type(err) == "string" and err:find(pattern) then
-            -- Just return nil instead of throwing an error
-            return nil
-          end
-        end
-
-        -- If not suppressed, let the error propagate
-        error(err)
-      end
-
-      -- Override the request method in the LSP client to handle errors gracefully
-      local old_request = vim.lsp.buf_request
-      vim.lsp.buf_request = function(bufnr, method, params, handler)
-        local success, result = pcall(old_request, bufnr, method, params, handler)
-        if not success and method == "textDocument/documentColor" then
-          -- Suppress errors for documentColor requests
-          return suppress_errors(result, method)
-        end
-        return result
-      end
-
       local home_dir = vim.fn.expand("$HOME")
       local flutter_bin = home_dir .. "/flutter/bin/flutter"
-
-      -- Check if Flutter executable exists
-      if vim.fn.filereadable(flutter_bin) ~= 1 then
-        vim.notify("Flutter executable not found at " .. flutter_bin, vim.log.levels.ERROR)
-        return
-      end
 
       require("flutter-tools").setup {
         ui = {
@@ -187,27 +135,10 @@ return {
     "dimaportenko/telescope-simulators.nvim",
     dependencies = {"nvim-telescope/telescope.nvim"},
     config = function ()
-      require("sevilzww.core.android_env").setup()
-
-      -- Check if Flutter is in PATH
-      if vim.fn.executable("flutter") ~= 1 then
-        -- Try to add Flutter to PATH again
-        local home_dir = vim.fn.expand("$HOME")
-        local flutter_bin_dir = home_dir .. "/flutter/bin"
-
-        if vim.fn.isdirectory(flutter_bin_dir) == 1 then
-          vim.env.PATH = flutter_bin_dir .. ":" .. vim.env.PATH
-          vim.notify("Added Flutter to PATH from telescope-simulators: " .. flutter_bin_dir, vim.log.levels.INFO)
-        end
-      end
-
       require("simulators").setup({
         android_emulator = true,
         apple_simulator = false,
-        -- Configure Android emulator path
         android_emulator_path = vim.fn.executable("emulator") == 1 and "emulator" or "/opt/android-sdk/emulator/emulator",
-        -- Configure adb path
-        adb_path = vim.fn.executable("adb") == 1 and "adb" or "/opt/android-sdk/platform-tools/adb",
       })
 
       require("telescope").load_extension("simulators")
@@ -215,9 +146,7 @@ return {
         require("sevilzww.mappings.telescope").setup()
       end)
 
-      -- We're using the CreateAVD command from android_env.lua instead
 
-      -- Create a command to list available AVDs
       vim.api.nvim_create_user_command("ListAVDs", function()
         vim.cmd("terminal avdmanager list avd")
       end, { desc = "List available Android Virtual Devices" })

@@ -25,6 +25,9 @@ M.formatters_by_ft = {
   -- Rust
   rust = { "rustfmt" },
   
+  -- Dart
+  dart = { "dart_format" },
+  
   -- Java
   java = { "google_java_format" },
   
