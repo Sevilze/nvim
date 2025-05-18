@@ -47,7 +47,6 @@ M.setup = function()
           "zip",
           "zipPlugin",
           "tutor",
-          "rplugin",
           "syntax",
           "synmenu",
           "optwin",

@@ -54,6 +54,9 @@ return {
                 typeCheckingMode = "basic",
                 autoSearchPaths = true,
                 useLibraryCodeForTypes = true,
+                diagnosticSeverityOverrides = {
+                  reportUnusedExpression = "none",
+                },
               },
             },
           },
