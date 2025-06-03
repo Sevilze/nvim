@@ -4,7 +4,7 @@ local function notify(msg, level, opts)
 
   if not opts.timeout then
     if level == vim.log.levels.ERROR then
-      opts.timeout = 5000 
+      opts.timeout = 5000
     elseif level == vim.log.levels.WARN then
       opts.timeout = 3000
     else
@@ -21,7 +21,7 @@ end
 local harpoon_cache = {
   items = {},
   last_updated = 0,
-  ttl = 1000,  -- cache lifetime in ms
+  ttl = 1000, -- cache lifetime in ms
 }
 
 -- Editor related plugins
@@ -50,7 +50,7 @@ return {
     branch = "harpoon2",
     dependencies = { "nvim-lua/plenary.nvim" },
     config = function()
-      local harpoon = require("harpoon")
+      local harpoon = require "harpoon"
 
       local function refresh_cache()
         harpoon_cache.items = {}
@@ -112,28 +112,43 @@ return {
       end
 
       -- Simple Harpoon setup focused on buffer list saving
-      harpoon:setup({
+      harpoon:setup {
         settings = {
           save_on_toggle = true,
           sync_on_ui_close = true,
           save_on_change = true,
         },
 
-        global_settings = {
-          save_on_exit = true,
-          mark_branch = false,
-          save_path = vim.fn.stdpath("data") .. "/harpoon/",
-          projects_enabled = true,
-          load_on_startup = true,
+        default = {
+          get_root_dir = function()
+            return vim.loop.cwd()
+          end,
+          create_list_item = function(config, name)
+            local item = {
+              value = name,
+              context = {
+                row = 1,
+                col = 0,
+              },
+            }
+
+            if vim.api.nvim_buf_is_valid(0) then
+              local cursor = vim.api.nvim_win_get_cursor(0)
+              item.context.row = cursor[1]
+              item.context.col = cursor[2]
+            end
+
+            return item
+          end,
         },
 
         menu = {
           width = vim.api.nvim_win_get_width(0) - 4,
         },
-      })
+      }
 
       -- Create directory for Harpoon data if it doesn't exist
-      local harpoon_dir = vim.fn.stdpath("data") .. "/harpoon"
+      local harpoon_dir = vim.fn.stdpath "data" .. "/harpoon"
       if vim.fn.isdirectory(harpoon_dir) == 0 then
         vim.fn.mkdir(harpoon_dir, "p")
       end
@@ -145,7 +160,7 @@ return {
       local function load_harpoon_for_current_dir()
         local cwd = vim.fn.getcwd()
         local project_name = vim.fn.fnamemodify(cwd, ":t")
-        local save_path = vim.fn.stdpath("data") .. "/harpoon/"
+        local save_path = vim.fn.stdpath "data" .. "/harpoon/"
 
         if save_path:sub(-1) ~= "/" then
           save_path = save_path .. "/"
@@ -158,7 +173,7 @@ return {
           local success, content = pcall(function()
             local f = io.open(project_file, "r")
             if f then
-              local content = f:read("*all")
+              local content = f:read "*all"
               f:close()
               return content
             end
@@ -166,27 +181,45 @@ return {
           end)
 
           if success and content then
-            local success, data = pcall(function() return vim.fn.json_decode(content) end)
+            local success, data = pcall(function()
+              return vim.fn.json_decode(content)
+            end)
             if success and data and data.mark and data.mark.items then
               local list = harpoon:list()
               if list then
                 list:clear()
 
                 for _, item in ipairs(data.mark.items) do
-                  local value, context
                   local success, result = pcall(function()
                     if type(item) == "table" then
-                      return { value = item.value, context = item.context }
+                      -- Ensure proper structure with row/col defaults
+                      local context = item.context or {}
+                      if type(context) == "string" then
+                        context = { text = context }
+                      end
+
+                      return {
+                        value = item.value,
+                        context = {
+                          row = context.row or 1,
+                          col = context.col or 0,
+                          text = context.text or "",
+                        },
+                      }
                     else
-                      return { value = tostring(item), context = nil }
+                      return {
+                        value = tostring(item),
+                        context = {
+                          row = 1,
+                          col = 0,
+                          text = "",
+                        },
+                      }
                     end
                   end)
 
                   if success and result.value then
-                    list:add({
-                      value = result.value,
-                      context = result.context or { text = "" }
-                    })
+                    list:add(result)
                   end
                 end
 
@@ -204,7 +237,7 @@ return {
       end)
 
       local function status_dir(dir)
-        if dir == vim.fn.expand("~") or dir:match("^/tmp") then
+        if dir == vim.fn.expand "~" or dir:match "^/tmp" then
           return false
         end
 
@@ -213,22 +246,32 @@ return {
 
       local current_list = nil
       local function capture_current_list()
-        local harpoon = require("harpoon")
+        local harpoon = require "harpoon"
         local list = harpoon:list()
         if list and list.items and #list.items > 0 then
           current_list = {}
           for _, item in ipairs(list.items) do
             local success, result = pcall(function()
               local value = item.value
-              local context = item.context or { text = "" }
-              return { value = value, context = context }
+              local context = item.context or {}
+
+              -- Ensure context has proper structure
+              if type(context) == "string" then
+                context = { text = context }
+              end
+
+              return {
+                value = value,
+                context = {
+                  row = context.row or 1,
+                  col = context.col or 0,
+                  text = context.text or "",
+                },
+              }
             end)
 
             if success and result.value then
-              table.insert(current_list, {
-                value = result.value,
-                context = result.context
-              })
+              table.insert(current_list, result)
             end
           end
 
@@ -245,10 +288,10 @@ return {
         end
 
         local project_name = vim.fn.fnamemodify(dir, ":t")
-        local save_path = vim.fn.stdpath("data") .. "/harpoon/"
+        local save_path = vim.fn.stdpath "data" .. "/harpoon/"
         vim.fn.mkdir(save_path, "p")
         local project_file = save_path .. project_name .. ".json"
-        local json_data = vim.fn.json_encode({ mark = { items = current_list } })
+        local json_data = vim.fn.json_encode { mark = { items = current_list } }
 
         local f, err = io.open(project_file, "w")
         if not f then
@@ -285,7 +328,7 @@ return {
         local project_name = vim.fn.fnamemodify(cwd, ":t")
 
         if not status_dir(cwd) then
-          notify("Skipping Harpoon save in home directory")
+          notify "Skipping Harpoon save in home directory"
           return
         end
 
@@ -293,7 +336,7 @@ return {
         local success = save_dir(cwd)
 
         if not success then
-          local harpoon = require("harpoon")
+          local harpoon = require "harpoon"
           local list = harpoon:list()
 
           if not list or not list.items or #list.items == 0 then
@@ -318,6 +361,292 @@ return {
           notify("No Harpoon state found for current project", vim.log.levels.WARN)
         end
       end, {})
+
+      -- Function to get Git changed files and add them to Harpoon
+      local function add_git_changed_files_to_harpoon()
+        local Job = require "plenary.job"
+
+        -- Check if we're in a Git repository
+        local git_check = Job:new {
+          command = "git",
+          args = { "rev-parse", "--is-inside-work-tree" },
+          cwd = vim.fn.getcwd(),
+        }
+
+        local git_check_result = git_check:sync()
+        if git_check.code ~= 0 then
+          notify("Not in a Git repository", vim.log.levels.WARN)
+          return
+        end
+
+        -- Get Git status
+        local git_status = Job:new {
+          command = "git",
+          args = { "status", "--porcelain" },
+          cwd = vim.fn.getcwd(),
+        }
+
+        local status_output = git_status:sync()
+        if git_status.code ~= 0 then
+          notify("Failed to get Git status", vim.log.levels.ERROR)
+          return
+        end
+
+        -- Parse Git status output
+        local changed_files = {}
+        local file_extensions = {
+          "lua",
+          "py",
+          "js",
+          "ts",
+          "jsx",
+          "tsx",
+          "rs",
+          "go",
+          "c",
+          "cpp",
+          "h",
+          "hpp",
+          "java",
+          "kt",
+          "swift",
+          "rb",
+          "php",
+          "cs",
+          "fs",
+          "scala",
+          "clj",
+          "hs",
+          "elm",
+          "dart",
+          "r",
+          "jl",
+          "nim",
+          "zig",
+          "v",
+          "odin",
+          "json",
+          "yaml",
+          "yml",
+          "toml",
+          "xml",
+          "html",
+          "css",
+          "scss",
+          "sass",
+          "md",
+          "rst",
+          "txt",
+          "conf",
+          "cfg",
+          "ini",
+          "env",
+          "sh",
+          "bash",
+          "zsh",
+          "fish",
+          "ps1",
+          "bat",
+          "cmd",
+          "vim",
+          "sql",
+          "dockerfile",
+          "makefile",
+          "cmake",
+          "gradle",
+        }
+
+        for _, line in ipairs(status_output) do
+          if line and line ~= "" then
+            local status_code = line:sub(1, 2)
+            local file_path = line:sub(4)
+
+            -- Skip if file doesn't exist or is a directory
+            if vim.fn.filereadable(file_path) == 1 and vim.fn.isdirectory(file_path) == 0 then
+              local ext = vim.fn.fnamemodify(file_path, ":e"):lower()
+              local filename = vim.fn.fnamemodify(file_path, ":t"):lower()
+
+              -- Check if it's a text file by extension or common filenames
+              local is_text_file = false
+              if ext ~= "" then
+                for _, valid_ext in ipairs(file_extensions) do
+                  if ext == valid_ext then
+                    is_text_file = true
+                    break
+                  end
+                end
+              else
+                local common_files = {
+                  "makefile",
+                  "dockerfile",
+                  "rakefile",
+                  "gemfile",
+                  "procfile",
+                  "readme",
+                  "license",
+                  "changelog",
+                  "todo",
+                  "authors",
+                }
+                for _, common in ipairs(common_files) do
+                  if filename == common then
+                    is_text_file = true
+                    break
+                  end
+                end
+              end
+
+              if is_text_file then
+                local status_desc = ""
+                if status_code:sub(1, 1) == "M" then
+                  status_desc = "Modified"
+                elseif status_code:sub(1, 1) == "A" then
+                  status_desc = "Added"
+                elseif status_code:sub(1, 1) == "D" then
+                  status_desc = "Deleted"
+                elseif status_code:sub(1, 1) == "R" then
+                  status_desc = "Renamed"
+                elseif status_code:sub(1, 1) == "C" then
+                  status_desc = "Copied"
+                elseif status_code:sub(1, 1) == "?" then
+                  status_desc = "Untracked"
+                else
+                  status_desc = "Changed"
+                end
+
+                table.insert(changed_files, {
+                  path = file_path,
+                  status = status_desc,
+                  status_code = status_code,
+                })
+              end
+            end
+          end
+        end
+
+        if #changed_files == 0 then
+          notify("No changed text files found in Git repository", vim.log.levels.INFO)
+          return
+        end
+
+        vim.schedule(function()
+          local has_devicons, devicons = pcall(require, "nvim-web-devicons")
+          if not has_devicons then
+            devicons = {
+              get_icon = function()
+                return "", ""
+              end,
+            }
+          end
+
+          local pickers = require "telescope.pickers"
+          local finders = require "telescope.finders"
+          local conf = require("telescope.config").values
+          local actions = require "telescope.actions"
+          local action_state = require "telescope.actions.state"
+          local entry_display = require "telescope.pickers.entry_display"
+
+          local displayer = entry_display.create {
+            separator = " ",
+            items = {
+              { width = 2 },
+              { width = 12 },
+              { remaining = true },
+              { width = 2 },
+            },
+          }
+
+          local make_display = function(entry)
+            local icon, icon_hl = devicons.get_icon(entry.filename, entry.ext, { default = true })
+            local in_harpoon = check_harpoon_list(entry.path)
+
+            return displayer {
+              { icon, icon_hl },
+              { entry.status, "Comment" },
+              entry.filename,
+              { in_harpoon and "✓" or "", "TelescopeResultsIdentifier" },
+            }
+          end
+
+          local entry_maker = function(file_info)
+            return {
+              value = file_info.path,
+              ordinal = file_info.path .. " " .. file_info.status,
+              display = make_display,
+              filename = file_info.path,
+              path = file_info.path,
+              status = file_info.status,
+              ext = vim.fn.fnamemodify(file_info.path, ":e"),
+            }
+          end
+
+          pickers
+            .new({
+              prompt_title = "Git Changed Files → Harpoon",
+              finder = finders.new_table {
+                results = changed_files,
+                entry_maker = entry_maker,
+              },
+              sorter = conf.generic_sorter {},
+              previewer = conf.file_previewer {},
+              attach_mappings = function(prompt_bufnr, map)
+                actions.select_default:replace(function()
+                  local selection = action_state.get_selected_entry()
+                  if selection then
+                    actions.close(prompt_bufnr)
+                    vim.schedule(function()
+                      vim.cmd("edit " .. vim.fn.fnameescape(selection.path))
+                    end)
+                  end
+                end)
+
+                map("i", "<leader>a", function()
+                  local selection = action_state.get_selected_entry()
+                  if selection then
+                    local harpoon = require "harpoon"
+                    harpoon:list():add {
+                      value = selection.path,
+                      context = {
+                        row = 1,
+                        col = 0,
+                        text = "",
+                      },
+                    }
+                    notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
+                  end
+                end)
+
+                map("i", "<C-a>", function()
+                  local picker = action_state.get_current_picker(prompt_bufnr)
+                  local harpoon = require "harpoon"
+                  local added_count = 0
+
+                  for entry in picker.manager:iter() do
+                    harpoon:list():add {
+                      value = entry.path,
+                      context = {
+                        row = 1,
+                        col = 0,
+                        text = "",
+                      },
+                    }
+                    added_count = added_count + 1
+                  end
+
+                  actions.close(prompt_bufnr)
+                  notify("Added " .. added_count .. " Git changed files to Harpoon", vim.log.levels.INFO)
+                end)
+
+                return true
+              end,
+            })
+            :find()
+        end)
+      end
+
+      vim.api.nvim_create_user_command("HarpoonGitFiles", function()
+        add_git_changed_files_to_harpoon()
+      end, { desc = "Add Git changed files to Harpoon" })
     end,
   },
 
@@ -335,7 +664,7 @@ return {
       },
       {
         "BurntSushi/ripgrep",
-      }
+      },
     },
     cmd = "Telescope",
     init = function()
@@ -348,11 +677,11 @@ return {
       })
     end,
     config = function()
-      local telescope = require("telescope")
-      local actions = require("telescope.actions")
-      local action_state = require("telescope.actions.state")
-      local sorters = require("telescope.sorters")
-      local make_entry = require("telescope.make_entry")
+      local telescope = require "telescope"
+      local actions = require "telescope.actions"
+      local action_state = require "telescope.actions.state"
+      local sorters = require "telescope.sorters"
+      local make_entry = require "telescope.make_entry"
 
       -- Override the default file entry maker to include a checkmark for harpoon files
       local original_file_maker = make_entry.gen_from_file
@@ -367,7 +696,9 @@ return {
 
             if check_harpoon_list(self.path) then
               display_output = display_output .. " ✓"
-              if not display_hl then display_hl = {} end
+              if not display_hl then
+                display_hl = {}
+              end
               local display_len = #display_output
               table.insert(display_hl, { { display_len - 1, display_len }, "TelescopeResultsIdentifier" })
             end
@@ -379,7 +710,7 @@ return {
         end
       end
 
-      telescope.setup({
+      telescope.setup {
         defaults = {
           vimgrep_arguments = {
             "rg",
@@ -390,7 +721,7 @@ return {
             "--column",
             "--smart-case",
             "--hidden",
-            "--glob=!.git/"
+            "--glob=!.git/",
           },
           sorting_strategy = "ascending",
           layout_config = {
@@ -406,11 +737,15 @@ return {
                 local selection = action_state.get_selected_entry(prompt_bufnr)
                 if selection and selection.path then
                   vim.schedule(function()
-                    local harpoon = require("harpoon")
-                    harpoon:list():add({
+                    local harpoon = require "harpoon"
+                    harpoon:list():add {
                       value = selection.path,
-                      context = { text = "" }
-                    })
+                      context = {
+                        row = 1,
+                        col = 0,
+                        text = "",
+                      },
+                    }
                     -- Harpoon cache is automatically invalidated
                     vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
                   end)
@@ -420,7 +755,7 @@ return {
                 local selection = action_state.get_selected_entry(prompt_bufnr)
                 if selection and selection.path then
                   vim.schedule(function()
-                    local harpoon = require("harpoon")
+                    local harpoon = require "harpoon"
                     local list = harpoon:list()
 
                     local normalized_path = vim.loop.fs_realpath(selection.path)
@@ -428,7 +763,10 @@ return {
                       local item_path = vim.loop.fs_realpath(item.value)
                       if item_path == normalized_path then
                         list:remove_at(i)
-                        vim.notify("Removed " .. vim.fs.basename(selection.path) .. " from Harpoon", vim.log.levels.INFO)
+                        vim.notify(
+                          "Removed " .. vim.fs.basename(selection.path) .. " from Harpoon",
+                          vim.log.levels.INFO
+                        )
                         break
                       end
                     end
@@ -456,13 +794,18 @@ return {
 
                     local item = {
                       value = selection.path,
-                      row = selection.lnum or 1,
-                      col = selection.col or 0,
-                      context = { text = context_text }
+                      context = {
+                        row = selection.lnum or 1,
+                        col = selection.col or 0,
+                        text = context_text,
+                      },
                     }
 
                     require("harpoon"):list():add(item)
-                    vim.notify("Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon", vim.log.levels.INFO)
+                    vim.notify(
+                      "Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon",
+                      vim.log.levels.INFO
+                    )
                   end
                 end,
               },
@@ -475,9 +818,9 @@ return {
             override_generic_sorter = true,
             override_file_sorter = true,
             case_mode = "smart_case",
-          }
-        }
-      })
+          },
+        },
+      }
 
       local ok, _ = pcall(telescope.load_extension, "fzf")
       if not ok then
@@ -490,17 +833,21 @@ return {
           local has_devicons, devicons = pcall(require, "nvim-web-devicons")
           if not has_devicons then
             vim.notify("nvim-web-devicons not found, icons won't be displayed", vim.log.levels.WARN)
-            devicons = { get_icon = function() return "", "" end }
+            devicons = {
+              get_icon = function()
+                return "", ""
+              end,
+            }
           end
 
-          local pickers = require("telescope.pickers")
-          local finders = require("telescope.finders")
+          local pickers = require "telescope.pickers"
+          local finders = require "telescope.finders"
           local conf = require("telescope.config").values
-          local actions = require("telescope.actions")
-          local action_state = require("telescope.actions.state")
-          local sorters = require("telescope.sorters")
-          local entry_display = require("telescope.pickers.entry_display")
-          local Job = require("plenary.job")
+          local actions = require "telescope.actions"
+          local action_state = require "telescope.actions.state"
+          local sorters = require "telescope.sorters"
+          local entry_display = require "telescope.pickers.entry_display"
+          local Job = require "plenary.job"
 
           -- Create dropdown theme that matches find_files
           local dropdown = {
@@ -537,26 +884,26 @@ return {
             local icon, icon_hl = devicons.get_icon(entry.filename, entry.ext, { default = true })
             local in_harpoon = check_harpoon_list(entry.path)
 
-            local displayer = entry_display.create({
+            local displayer = entry_display.create {
               separator = " ",
               items = {
                 { width = 2 },
                 { remaining = true },
-                { width = in_harpoon and 2 or 0 }
-              }
-            })
+                { width = in_harpoon and 2 or 0 },
+              },
+            }
 
             if in_harpoon then
-              return displayer({
+              return displayer {
                 { icon, icon_hl },
                 entry.filename,
-                { "✓", "TelescopeResultsIdentifier" }
-              })
+                { "✓", "TelescopeResultsIdentifier" },
+              }
             else
-              return displayer({
+              return displayer {
                 { icon, icon_hl },
-                entry.filename
-              })
+                entry.filename,
+              }
             end
           end
 
@@ -568,12 +915,14 @@ return {
               display = make_display,
               filename = entry.path,
               path = entry.path,
-              ext = entry.ext
+              ext = entry.ext,
             }
           end
 
           local function update_title_only()
-            if not current_picker or not current_picker.results_win then return end
+            if not current_picker or not current_picker.results_win then
+              return
+            end
 
             if current_picker.stats then
               current_picker.stats.processed = file_count
@@ -581,14 +930,16 @@ return {
               if current_picker._status and current_picker._status.text then
                 current_picker._status.text = file_count .. " / " .. file_count
                 vim.api.nvim_win_set_config(current_picker.results_win, {
-                  title = current_picker.results_win_options and current_picker.results_win_options.title
+                  title = current_picker.results_win_options and current_picker.results_win_options.title,
                 })
               end
             end
           end
 
           local function process_batch()
-            if #current_batch == 0 then return end
+            if #current_batch == 0 then
+              return
+            end
 
             for _, line in ipairs(current_batch) do
               if line and line ~= "" and vim.fn.isdirectory(line) == 0 then
@@ -603,7 +954,7 @@ return {
 
                 table.insert(files_by_ext[ext], {
                   path = rel_path,
-                  ext = ext
+                  ext = ext,
                 })
 
                 file_count = file_count + 1
@@ -631,10 +982,13 @@ return {
             last_update_time = vim.loop.now()
 
             if current_picker then
-              current_picker:refresh(finders.new_table({
-                results = {},
-                entry_maker = entry_maker,
-              }), { reset_prompt = false })
+              current_picker:refresh(
+                finders.new_table {
+                  results = {},
+                  entry_maker = entry_maker,
+                },
+                { reset_prompt = false }
+              )
 
               if current_picker.prompt_bufnr then
                 vim.api.nvim_buf_set_option(current_picker.prompt_bufnr, "modifiable", false)
@@ -642,23 +996,27 @@ return {
             end
 
             local timer = vim.loop.new_timer()
-            timer:start(0, 100, vim.schedule_wrap(function()
-              if not is_collecting then
-                timer:stop()
-                timer:close()
-                return
-              end
+            timer:start(
+              0,
+              100,
+              vim.schedule_wrap(function()
+                if not is_collecting then
+                  timer:stop()
+                  timer:close()
+                  return
+                end
 
-              -- Force a UI refresh by simulating a prompt change
-              if current_picker and current_picker.prompt_bufnr then
-                local current_text = vim.api.nvim_buf_get_lines(current_picker.prompt_bufnr, 0, 1, false)[1] or ""
-                vim.api.nvim_buf_set_option(current_picker.prompt_bufnr, "modifiable", true)
-                vim.api.nvim_buf_set_lines(current_picker.prompt_bufnr, 0, 1, false, {current_text .. " "})
-                vim.api.nvim_buf_set_lines(current_picker.prompt_bufnr, 0, 1, false, {current_text})
-              end
-            end))
+                -- Force a UI refresh by simulating a prompt change
+                if current_picker and current_picker.prompt_bufnr then
+                  local current_text = vim.api.nvim_buf_get_lines(current_picker.prompt_bufnr, 0, 1, false)[1] or ""
+                  vim.api.nvim_buf_set_option(current_picker.prompt_bufnr, "modifiable", true)
+                  vim.api.nvim_buf_set_lines(current_picker.prompt_bufnr, 0, 1, false, { current_text .. " " })
+                  vim.api.nvim_buf_set_lines(current_picker.prompt_bufnr, 0, 1, false, { current_text })
+                end
+              end)
+            )
 
-            current_job = Job:new({
+            current_job = Job:new {
               command = "rg",
               args = { "--files", "--hidden", "--glob", "!.git/" },
               cwd = vim.fn.getcwd(),
@@ -691,29 +1049,34 @@ return {
                 vim.schedule(function()
                   if current_picker and current_picker.prompt_bufnr then
                     vim.api.nvim_buf_set_option(current_picker.prompt_bufnr, "modifiable", true)
-                    vim.api.nvim_buf_set_lines(current_picker.prompt_bufnr, 0, 1, false, {""})
+                    vim.api.nvim_buf_set_lines(current_picker.prompt_bufnr, 0, 1, false, { "" })
                   end
 
                   table.sort(ext_order)
                   all_files = {}
                   for _, ext_name in ipairs(ext_order) do
-                    table.sort(files_by_ext[ext_name], function(a, b) return a.path < b.path end)
+                    table.sort(files_by_ext[ext_name], function(a, b)
+                      return a.path < b.path
+                    end)
 
                     for _, file_entry in ipairs(files_by_ext[ext_name]) do
                       table.insert(all_files, file_entry)
                     end
                   end
 
-                  current_picker:refresh(finders.new_table({
-                    results = all_files,
-                    entry_maker = entry_maker,
-                  }), { reset_prompt = false })
+                  current_picker:refresh(
+                    finders.new_table {
+                      results = all_files,
+                      entry_maker = entry_maker,
+                    },
+                    { reset_prompt = false }
+                  )
                   update_title_only()
 
                   vim.notify("File collection complete. Found " .. file_count .. " files.", vim.log.levels.INFO)
                 end)
-              end
-            })
+              end,
+            }
 
             current_job:start()
           end
@@ -726,14 +1089,13 @@ return {
           end
 
           current_picker = pickers.new(dropdown, {
-            finder = finders.new_table({
+            finder = finders.new_table {
               results = {},
               entry_maker = entry_maker,
-            }),
+            },
             sorter = sorters.get_generic_fuzzy_sorter(),
-            previewer = conf.file_previewer({}),
+            previewer = conf.file_previewer {},
             attach_mappings = function(prompt_bufnr, map)
-
               actions.select_default:replace(function()
                 local selection = action_state.get_selected_entry()
                 if selection then
@@ -756,11 +1118,15 @@ return {
               map("i", "<leader>a", function()
                 local selection = action_state.get_selected_entry()
                 if selection then
-                  local harpoon = require("harpoon")
-                  harpoon:list():add({
+                  local harpoon = require "harpoon"
+                  harpoon:list():add {
                     value = selection.path,
-                    context = { text = "" }
-                  })
+                    context = {
+                      row = 1,
+                      col = 0,
+                      text = "",
+                    },
+                  }
                   vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
                 end
               end)
@@ -768,7 +1134,7 @@ return {
               map("i", "<leader>r", function()
                 local selection = action_state.get_selected_entry()
                 if selection then
-                  local harpoon = require("harpoon")
+                  local harpoon = require "harpoon"
                   local list = harpoon:list()
 
                   local normalized_path = vim.loop.fs_realpath(selection.path)
@@ -784,7 +1150,7 @@ return {
               end)
 
               return true
-            end
+            end,
           })
 
           current_picker:find()
@@ -813,7 +1179,6 @@ return {
     "augmentcode/augment.vim",
     lazy = false,
     priority = 1000,
-    config = function()
-    end,
+    config = function() end,
   },
 }
