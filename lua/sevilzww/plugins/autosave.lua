@@ -31,6 +31,11 @@ return {
             return false
           end
 
+          -- Check if buffer is valid first
+          if not buf or not vim.api.nvim_buf_is_valid(buf) then
+            return false
+          end
+
           local fn = vim.fn
           local utils = require("auto-save.utils.data")
 

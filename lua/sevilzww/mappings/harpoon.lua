@@ -34,6 +34,74 @@ local function notify(msg, level)
   })
 end
 
+local function remove_at_with_compaction(list, index)
+  if not list or not list.items or index < 1 or index > #list.items then
+    return false
+  end
+
+  -- Remove the item at the specified index
+  table.remove(list.items, index)
+
+  -- Automatically compacts the list by moving all elements after the removed index up by one position
+  pcall(function()
+    local harpoon = require("harpoon")
+    harpoon:list():sync()
+  end)
+
+  -- Refresh floating window if visible
+  local harpoon_float = require "sevilzww.utils.harpoon_float"
+  if harpoon_float.is_visible() then
+    harpoon_float.refresh()
+  end
+
+  return true
+end
+
+-- Reopen default Harpoon menu with cursor position preservation 
+local function reopen_harpoon_menu_with_cursor(target_line)
+  vim.schedule(function()
+    local harpoon = require("harpoon")
+    local list = harpoon:list()
+    harpoon.ui:toggle_quick_menu(list)
+
+    -- Restore cursor position and clean up buffer content after menu is opened
+    vim.schedule(function()
+      if vim.bo.filetype == "harpoon" then
+        local current_buf = vim.api.nvim_get_current_buf()
+        local max_line = math.max(1, list:length())
+        local safe_line = math.min(target_line, max_line)
+
+        -- Get current buffer lines to check for trailing empty lines
+        local current_lines = vim.api.nvim_buf_get_lines(current_buf, 0, -1, false)
+        local actual_item_count = list:length()
+
+        local cleaned_lines = {}
+        for i = 1, actual_item_count do
+          if current_lines[i] and vim.trim(current_lines[i]) ~= "" then
+            table.insert(cleaned_lines, current_lines[i])
+          end
+        end
+
+        -- Always update the buffer content to ensure no trailing empty lines
+        if #cleaned_lines ~= #current_lines or actual_item_count < #current_lines then
+          vim.api.nvim_buf_set_option(current_buf, "modifiable", true)
+          vim.api.nvim_buf_set_lines(current_buf, 0, -1, false, {})
+          if #cleaned_lines > 0 then
+            vim.api.nvim_buf_set_lines(current_buf, 0, -1, false, cleaned_lines)
+          end
+          vim.api.nvim_buf_set_option(current_buf, "modifiable", false)
+
+          max_line = math.max(1, #cleaned_lines)
+          safe_line = math.min(target_line, max_line)
+        end
+
+        -- Set cursor position
+        pcall(vim.api.nvim_win_set_cursor, 0, {safe_line, 0})
+      end
+    end)
+  end)
+end
+
 M.setup = function()
   local harpoon = require "harpoon"
   local harpoon_float = require "sevilzww.utils.harpoon_float"
@@ -136,15 +204,27 @@ M.setup = function()
           end, { buffer = buf, noremap = true, silent = true, desc = "Select item " .. i })
 
           vim.keymap.set("n", "<leader>m" .. i, function()
+            local current_line = vim.api.nvim_win_get_cursor(0)[1]
             vim.cmd "bdelete!"
+
             vim.schedule(function()
               local list = require("harpoon"):list()
               if i <= list:length() then
-                list:remove_at(i)
-                vim.schedule(function()
-                  require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
-                  notify("Removed Harpoon mark #" .. i)
-                end)
+                remove_at_with_compaction(list, i)
+
+                -- Calculate new cursor position after removal
+                local new_cursor_line = current_line
+                if current_line > i then
+                  -- If cursor was after the removed item, move it up by one
+                  new_cursor_line = current_line - 1
+                elseif current_line == i then
+                  -- If cursor was on the removed item, keep it at the same position
+                  new_cursor_line = math.min(current_line, list:length())
+                end
+                -- If cursor was before the removed item, keep it at the same position
+
+                reopen_harpoon_menu_with_cursor(new_cursor_line)
+                notify("Removed Harpoon mark #" .. i)
               else
                 notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
               end
@@ -167,15 +247,22 @@ M.setup = function()
 
           -- Add removal mapping with leader leader m prefix
           vim.keymap.set("n", "<leader><leader>m" .. i, function()
+            local current_line = vim.api.nvim_win_get_cursor(0)[1]
             vim.cmd "bdelete!"
+
             vim.schedule(function()
               local list = require("harpoon"):list()
               if i <= list:length() then
-                list:remove_at(i)
-                vim.schedule(function()
-                  require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
-                  notify("Removed Harpoon mark #" .. i)
-                end)
+                remove_at_with_compaction(list, i)
+
+                local new_cursor_line = current_line
+                if current_line > i then
+                  new_cursor_line = current_line - 1
+                elseif current_line == i then
+                  new_cursor_line = math.min(current_line, list:length())
+                end
+                reopen_harpoon_menu_with_cursor(new_cursor_line)
+                notify("Removed Harpoon mark #" .. i)
               else
                 notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
               end
@@ -204,13 +291,25 @@ M.setup = function()
       map("n", "<leader>m" .. i, function()
         local list = harpoon:list()
         if i <= list:length() then
-          list:remove_at(i)
-          notify("Removed Harpoon mark #" .. i)
-          if vim.bo.filetype == "harpoon" then
+          local was_menu_open = vim.bo.filetype == "harpoon"
+          local current_line = 1
+
+          if was_menu_open then
+            current_line = vim.api.nvim_win_get_cursor(0)[1]
             vim.cmd "bdelete!"
-            vim.schedule(function()
-              require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
-            end)
+          end
+
+          remove_at_with_compaction(list, i)
+          notify("Removed Harpoon mark #" .. i)
+
+          if was_menu_open then
+            local new_cursor_line = current_line
+            if current_line > i then
+              new_cursor_line = current_line - 1
+            elseif current_line == i then
+              new_cursor_line = math.min(current_line, list:length())
+            end
+            reopen_harpoon_menu_with_cursor(new_cursor_line)
           end
         else
           notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
@@ -231,13 +330,25 @@ M.setup = function()
       map("n", "<leader><leader>m" .. i, function()
         local list = harpoon:list()
         if i <= list:length() then
-          list:remove_at(i)
-          notify("Removed Harpoon mark #" .. i)
-          if vim.bo.filetype == "harpoon" then
+          local was_menu_open = vim.bo.filetype == "harpoon"
+          local current_line = 1
+
+          if was_menu_open then
+            current_line = vim.api.nvim_win_get_cursor(0)[1]
             vim.cmd "bdelete!"
-            vim.schedule(function()
-              require("harpoon").ui:toggle_quick_menu(require("harpoon"):list())
-            end)
+          end
+
+          remove_at_with_compaction(list, i)
+          notify("Removed Harpoon mark #" .. i)
+
+          if was_menu_open then
+            local new_cursor_line = current_line
+            if current_line > i then
+              new_cursor_line = current_line - 1
+            elseif current_line == i then
+              new_cursor_line = math.min(current_line, list:length())
+            end
+            reopen_harpoon_menu_with_cursor(new_cursor_line)
           end
         else
           notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
@@ -286,10 +397,8 @@ M.setup = function()
     end
 
     if was_menu_open then
-      vim.schedule(function()
-        harpoon.ui:toggle_quick_menu(harpoon:list())
-        notify "Cleared Harpoon list"
-      end)
+      reopen_harpoon_menu_with_cursor(1)
+      notify "Cleared Harpoon list"
     else
       notify "Cleared Harpoon list"
     end

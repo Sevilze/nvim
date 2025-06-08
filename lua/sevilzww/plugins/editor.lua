@@ -1168,7 +1168,9 @@ return {
     cmd = { "TSInstall", "TSBufEnable", "TSBufDisable", "TSModuleInfo" },
     build = ":TSUpdate",
     opts = function()
-      return require "nvchad.configs.treesitter"
+      local opts = require "nvchad.configs.treesitter"
+      opts.ensure_installed = vim.list_extend(opts.ensure_installed or {}, { "gitignore" })
+      return opts
     end,
     config = function(_, opts)
       require("nvim-treesitter.configs").setup(opts)

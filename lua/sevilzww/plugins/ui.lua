@@ -180,6 +180,11 @@ return {
         git = true,
       }
 
+      nvimtree_config.filters = nvimtree_config.filters or {}
+      nvimtree_config.filters.git_ignored = false
+      nvimtree_config.filters.dotfiles = false
+      nvimtree_config.filters.git_clean = false
+
       vim.api.nvim_create_user_command("CheckNvimTreeConfig", function()
         local tree_config = require("nvim-tree.config")
         local tree_view = tree_config.view
@@ -210,6 +215,11 @@ return {
               remove = true,
               trash = true,
             }
+          },
+          filters = {
+            git_ignored = false,
+            dotfiles = false,
+            git_clean = false,
           }
         })
 
