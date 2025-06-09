@@ -34,19 +34,29 @@ M.formatters_by_ft = {
   -- Shell
   sh = { "shfmt" },
   bash = { "shfmt" },
-  
-  ["*"] = { "trim_whitespace", "trim_newlines" },
 }
 
-M.format_on_save = {
-  timeout_ms = 1000,
-  lsp_fallback = true,
-}
+M.format_on_save = false
 
 M.format_options = {
   async = false,
   quiet = false,
   lsp_fallback = true,
+  timeout_ms = 4000,
+}
+
+M.format_on_buffer_leave = {
+  enabled = true,
+  timeout_ms = 4000,
+  lsp_fallback = true,
+  notify = true,
+}
+
+M.format_on_refactor = {
+  enabled = true,
+  timeout_ms = 4000,
+  lsp_fallback = true,
+  notify = true,
 }
 
 M.notify_on_format = true

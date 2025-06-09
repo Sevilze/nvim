@@ -12,21 +12,60 @@ map("i", "<C-j>", "<Down>", { desc = "move down" })
 map("i", "<C-k>", "<Up>", { desc = "move up" })
 map("i", "jk", "<Esc>", { desc = "escape insert mode" })
 
--- Undo and redo in insert mode
-map("i", "<C-z>", "<C-o>u", { desc = "undo in insert mode" })
-map("i", "<C-S-z>", "<C-o><C-r>", { desc = "redo in insert mode" })
+local function safe_undo_redo(operation, mode_prefix)
+  mode_prefix = mode_prefix or ""
+  return function()
+    vim.api.nvim_exec_autocmds("User", { pattern = "UndoRedoOperation" })
+    if mode_prefix == "" then
+      vim.cmd("normal! " .. operation)
+    else
+      vim.cmd("normal! " .. mode_prefix .. operation)
+    end
+  end
+end
+
+map("i", "<C-z>", safe_undo_redo("u", "<C-o>"), { desc = "undo in insert mode" })
+map("i", "<C-S-z>", safe_undo_redo("<C-r>", "<C-o>"), { desc = "redo in insert mode" })
 
 map("n", "<Esc>", "<cmd>noh<CR>", { desc = "general clear highlights" })
 map("n", "<C-s>", "<cmd>w<CR>", { desc = "general save file" })
 map("n", "<C-c>", "<cmd>%y+<CR>", { desc = "general copy whole file" })
 
--- Undo and redo in normal mode
-map("n", "<C-z>", "u", { desc = "undo" })
-map("n", "<C-S-z>", "<C-r>", { desc = "redo" })
+map("n", "<C-z>", safe_undo_redo("u"), { desc = "undo" })
+map("n", "<C-S-z>", safe_undo_redo("<C-r>"), { desc = "redo" })
 
 -- Undo and redo in visual mode
-map("v", "<C-z>", "<Esc>u", { desc = "undo in visual mode" })
-map("v", "<C-S-z>", "<Esc><C-r>", { desc = "redo in visual mode" })
+map("v", "<C-z>", function()
+  vim.api.nvim_exec_autocmds("User", { pattern = "UndoRedoOperation" })
+  vim.cmd("normal! \\<Esc>u")
+end, { desc = "undo in visual mode" })
+map("v", "<C-S-z>", function()
+  vim.api.nvim_exec_autocmds("User", { pattern = "UndoRedoOperation" })
+  vim.cmd("normal! \\<Esc>\\<C-r>")
+end, { desc = "redo in visual mode" })
+
+local function safe_paste(paste_cmd)
+  return function()
+    vim.g._formatting_blocked = true
+    vim.schedule(function()
+      vim.g._formatting_blocked = false
+    end)
+    vim.cmd("normal! " .. paste_cmd)
+  end
+end
+
+map("n", "p", safe_paste("p"), { desc = "paste after cursor (safe)" })
+map("n", "P", safe_paste("P"), { desc = "paste before cursor (safe)" })
+map("v", "p", safe_paste("p"), { desc = "paste in visual mode (safe)" })
+map("v", "P", safe_paste("P"), { desc = "paste in visual mode (safe)" })
+
+map("i", "<C-v>", function()
+  vim.g._formatting_blocked = true
+  vim.schedule(function()
+    vim.g._formatting_blocked = false
+  end)
+  return "<C-r>+"
+end, { desc = "paste from clipboard (safe)", expr = true })
 
 map("n", "<leader>n", function()
   vim.opt.number = not vim.opt.number:get()
@@ -54,6 +93,8 @@ map("n", "<leader>hn", function()
 end, { desc = "toggle hybrid line numbers" })
 map("n", "<leader>ch", "<cmd>NvCheatsheet<CR>", { desc = "toggle nvcheatsheet" })
 
+-- require("sevilzww.core.file_deletion_blocker").setup()
+
 -- Load mappings for various plugins
 require("sevilzww.mappings.nvimtree")
 require("sevilzww.mappings.buffers")
@@ -71,6 +112,7 @@ require("sevilzww.mappings.swap_cleaner").setup()
 require("sevilzww.mappings.lazygit").setup()
 require("sevilzww.mappings.git_conflict").setup()
 require("sevilzww.mappings.diffview").setup()
+require("sevilzww.mappings.refactoring").setup()
 
 local telescope_ok, _ = pcall(require, "telescope")
 if telescope_ok then

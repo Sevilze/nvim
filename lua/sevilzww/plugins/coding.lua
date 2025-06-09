@@ -308,7 +308,7 @@ return {
   -- formatting
   {
     "stevearc/conform.nvim",
-    event = { "BufWritePre" },
+    lazy = false,
     cmd = { "ConformInfo" },
     keys = {
       {
@@ -322,27 +322,107 @@ return {
     },
     opts = function()
       local conform_config = require("sevilzww.configs.conform")
-
       return {
         formatters_by_ft = conform_config.formatters_by_ft,
-        format_on_save = conform_config.format_on_save,
-        notify_on_error = true,
+        format_on_save = false,
         format_after_save = false,
+        notify_on_error = true,
       }
     end,
     config = function(_, opts)
       local conform = require("conform")
       conform.setup(opts)
 
-      vim.api.nvim_create_user_command("ToggleFormatOnSave", function()
-        if conform.opts.format_on_save == false or conform.opts.format_on_save == nil then
-          conform.opts.format_on_save = require("sevilzww.configs.conform").format_on_save
-          vim.notify("Format on save enabled", vim.log.levels.INFO)
-        else
-          conform.opts.format_on_save = false
-          vim.notify("Format on save disabled", vim.log.levels.INFO)
+      vim.g.format_on_buffer_leave = true
+      vim.g.format_on_refactor = true
+
+      local function format_buffer(bufnr, reason)
+        bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+        if not vim.api.nvim_buf_is_valid(bufnr) or vim.api.nvim_buf_get_name(bufnr) == "" then return end
+        local filetype = vim.bo[bufnr].filetype
+        local excluded_fts = { "TelescopePrompt", "gitcommit", "gitrebase", "harpoon", "nvdash", "help", "qf" }
+        if vim.tbl_contains(excluded_fts, filetype) then return end
+
+        if reason == "buffer_leave" then
+          if vim.api.nvim_buf_line_count(bufnr) == 1 and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == "" then return end
         end
-      end, { desc = "Toggle format on save" })
+
+        local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t")
+
+        conform.format({
+          bufnr = bufnr,
+          timeout_ms = 4000,
+          lsp_fallback = true,
+          quiet = true,
+        }, function(err, did_format)
+            if err then
+              vim.notify("Formatting failed for " .. filename .. ": " .. tostring(err), vim.log.levels.WARN)
+            elseif did_format and reason == "buffer_leave" and vim.g.format_on_buffer_leave then
+              vim.notify("Formatted on leave: " .. filename, vim.log.levels.INFO)
+            end
+        end)
+      end
+
+      local original_conform_format = conform.format
+      conform.format = function(options, cb)
+        -- Block formatting if autosave is running
+        if vim.g._autosave_in_progress or vim.g._formatting_blocked then
+          return
+        end
+        return original_conform_format(options, cb)
+      end
+      
+      vim.api.nvim_create_autocmd("LspAttach", {
+        desc = "Disable LSP formatting capabilities",
+        callback = function(args)
+          local client = vim.lsp.get_client_by_id(args.data.client_id)
+          if client and client.server_capabilities then
+            client.server_capabilities.documentFormattingProvider = false
+            client.server_capabilities.documentRangeFormattingProvider = false
+          end
+        end,
+      })
+
+      -- Format when leaving a buffer
+      vim.api.nvim_create_autocmd("BufHidden", {
+        group = vim.api.nvim_create_augroup("FormatOnBufferLeave", { clear = true }),
+        desc = "Format buffer on leave",
+        callback = function(args)
+          if vim.g.format_on_buffer_leave then
+            vim.schedule(function() format_buffer(args.buf, "buffer_leave") end)
+          end
+        end,
+      })
+
+      -- Block formatting during undo/redo
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "UndoRedoOperation",
+        callback = function()
+            vim.g._formatting_blocked = true
+            vim.schedule(function() vim.g._formatting_blocked = false end)
+        end,
+      })
+
+      -- Expose the global function for the refactoring plugin to call
+      _G.format_after_refactor = function(bufnr)
+        if vim.g.format_on_refactor then
+           vim.schedule(function() format_buffer(bufnr, "refactor") end)
+        end
+      end
+
+      -- User commands for toggling behavior
+      vim.api.nvim_create_user_command("ToggleFormatOnBufferLeave", function()
+        vim.g.format_on_buffer_leave = not vim.g.format_on_buffer_leave
+        local status = vim.g.format_on_buffer_leave and "enabled" or "disabled"
+        vim.notify("Format on buffer leave " .. status, vim.log.levels.INFO)
+      end, { desc = "Toggle format on buffer leave" })
+
+      vim.api.nvim_create_user_command("ToggleFormatOnRefactor", function()
+        vim.g.format_on_refactor = not vim.g.format_on_refactor
+        local status = vim.g.format_on_refactor and "enabled" or "disabled"
+        vim.notify("Format on refactor " .. status, vim.log.levels.INFO)
+      end, { desc = "Toggle format on refactor" })
     end,
   },
 
@@ -389,6 +469,65 @@ return {
     },
     opts = function()
       return require "nvchad.configs.cmp"
+    end,
+  },
+
+  -- Refactoring plugin with Telescope integration
+  {
+    "ThePrimeagen/refactoring.nvim",
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+      "nvim-treesitter/nvim-treesitter",
+      "nvim-telescope/telescope.nvim",
+    },
+    lazy = false,
+    config = function()
+      local refactoring = require("refactoring")
+
+      refactoring.setup({
+        prompt_func_return_type = {
+          go = true,
+          java = true,
+          cpp = true,
+          c = true,
+          h = true,
+          hpp = true,
+          cxx = true,
+          rust = true,
+        },
+        prompt_func_param_type = {
+          go = true,
+          java = true,
+          cpp = true,
+          c = true,
+          h = true,
+          hpp = true,
+          cxx = true,
+          rust = true,
+        },
+        printf_statements = {},
+        print_var_statements = {},
+        show_success_message = true,
+      })
+
+      require("telescope").load_extension("refactoring")
+
+      local telescope = require("telescope")
+      telescope.setup({
+        extensions = {
+          refactoring = {
+            theme = "dropdown",
+            layout_config = {
+              width = 0.8,
+              height = 0.9,
+              prompt_position = "top",
+            },
+            sorting_strategy = "ascending",
+          }
+        }
+      })
+
+      require("sevilzww.mappings.refactoring").setup()
     end,
   },
 }

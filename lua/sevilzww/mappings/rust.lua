@@ -20,7 +20,20 @@ function M.setup_buffer(client, bufnr)
 
   map("n", "<leader>ra", function() vim.lsp.buf.code_action() end, opts)
   map("n", "<leader>rh", function() vim.lsp.buf.hover() end, opts)
-  map("n", "<leader>rn", function() vim.lsp.buf.rename() end, opts)
+
+  -- Rename function with references preview
+  map("n", "<leader>rn", function()
+    vim.ui.input({ prompt = "New name: " }, function(new_name)
+      if new_name and new_name ~= "" then
+        vim.lsp.buf.rename(new_name)
+        vim.schedule(function()
+          if _G.format_after_refactor then
+            _G.format_after_refactor(vim.api.nvim_get_current_buf())
+          end
+        end)
+      end
+    end)
+  end, opts)
 end
 
 return M
