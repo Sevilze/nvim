@@ -8,4 +8,3 @@ end, { desc = "Format current buffer" })
 -- Toggle formatting behaviors
 map("n", "<leader>tfl", "<cmd>ToggleFormatOnBufferLeave<CR>", { desc = "Toggle format on buffer leave" })
 map("n", "<leader>tfr", "<cmd>ToggleFormatOnRefactor<CR>", { desc = "Toggle format on refactor" })
-map("n", "<leader>tfd", "<cmd>ToggleFormatDebug<CR>", { desc = "Toggle format debugging" })

@@ -339,25 +339,62 @@ return {
       local function format_buffer(bufnr, reason)
         bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-        if not vim.api.nvim_buf_is_valid(bufnr) or vim.api.nvim_buf_get_name(bufnr) == "" then return end
+        if not vim.api.nvim_buf_is_valid(bufnr) then
+          return
+        end
+
+        local buf_name = vim.api.nvim_buf_get_name(bufnr)
+        if buf_name == "" then
+          return
+        end
+
+        if not vim.api.nvim_buf_is_loaded(bufnr) then
+          return
+        end
+
         local filetype = vim.bo[bufnr].filetype
         local excluded_fts = { "TelescopePrompt", "gitcommit", "gitrebase", "harpoon", "nvdash", "help", "qf" }
         if vim.tbl_contains(excluded_fts, filetype) then return end
 
-        if reason == "buffer_leave" then
+        if reason == "buffer_switch" then
           if vim.api.nvim_buf_line_count(bufnr) == 1 and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == "" then return end
         end
 
-        local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t")
+        -- Check if formatters are available for this filetype
+        local formatters = conform.list_formatters(bufnr)
+        if #formatters == 0 then
+          if reason == "buffer_leave" then
+            local filename = vim.fn.fnamemodify(buf_name, ":t")
+            vim.notify("No formatters available for " .. filename .. " (filetype: " .. filetype .. ")", vim.log.levels.DEBUG)
+          end
+          return
+        end
 
-        conform.format({
+        local filename = vim.fn.fnamemodify(buf_name, ":t")
+        if not vim.api.nvim_buf_is_valid(bufnr) or not vim.api.nvim_buf_is_loaded(bufnr) then
+          return
+        end
+
+        local format_options = {
           bufnr = bufnr,
           timeout_ms = 4000,
           lsp_fallback = true,
           quiet = true,
-        }, function(err, did_format)
+        }
+
+        -- Add special flag for BufLeave formatting to bypass blocking
+        if reason == "buffer_leave" then
+          format_options._allow_buffer_leave = true
+        end
+
+        conform.format(format_options, function(err, did_format)
             if err then
-              vim.notify("Formatting failed for " .. filename .. ": " .. tostring(err), vim.log.levels.WARN)
+              local err_str = tostring(err)
+              if err_str:match("No formatters available") then
+                vim.notify("No formatters available for " .. filename .. " during " .. reason, vim.log.levels.DEBUG)
+              else
+                vim.notify("Formatting failed for " .. filename .. ": " .. err_str, vim.log.levels.WARN)
+              end
             elseif did_format and reason == "buffer_leave" and vim.g.format_on_buffer_leave then
               vim.notify("Formatted on leave: " .. filename, vim.log.levels.INFO)
             end
@@ -366,7 +403,11 @@ return {
 
       local original_conform_format = conform.format
       conform.format = function(options, cb)
-        -- Block formatting if autosave is running
+        -- Allow BufLeave formatting to bypass blocking
+        if options and options._allow_buffer_leave then
+          return original_conform_format(options, cb)
+        end
+
         if vim.g._autosave_in_progress or vim.g._formatting_blocked then
           return
         end
@@ -384,13 +425,57 @@ return {
         end,
       })
 
-      -- Format when leaving a buffer
+      local format_augroup = vim.api.nvim_create_augroup("FormatOnBufferLeave", { clear = true })
+      -- Format when changing a buffer
       vim.api.nvim_create_autocmd("BufHidden", {
-        group = vim.api.nvim_create_augroup("FormatOnBufferLeave", { clear = true }),
+        group = format_augroup,
+        desc = "Format buffer on switch",
+        callback = function(args)
+          if vim.g.format_on_buffer_leave then
+            vim.schedule(function()
+              -- Additional safety check for buffer switch
+              if vim.api.nvim_buf_is_valid(args.buf) and vim.api.nvim_buf_is_loaded(args.buf) then
+                format_buffer(args.buf, "buffer_switch")
+              end
+            end)
+          end
+        end,
+      })
+
+       -- Format when leaving a buffer
+      vim.api.nvim_create_autocmd("BufLeave", {
+        group = format_augroup,
         desc = "Format buffer on leave",
         callback = function(args)
           if vim.g.format_on_buffer_leave then
-            vim.schedule(function() format_buffer(args.buf, "buffer_leave") end)
+            local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(args.buf), ":t")
+
+            -- Store buffer info before it potentially gets invalidated
+            local buf_info = {
+              bufnr = args.buf,
+              filename = filename,
+              filetype = vim.bo[args.buf].filetype,
+              buf_name = vim.api.nvim_buf_get_name(args.buf),
+              is_valid = vim.api.nvim_buf_is_valid(args.buf),
+              is_loaded = vim.api.nvim_buf_is_loaded(args.buf),
+            }
+
+            -- Try immediate formatting first (before buffer state changes)
+            if buf_info.is_valid and buf_info.is_loaded and buf_info.buf_name ~= "" then
+              format_buffer(args.buf, "buffer_leave")
+            else
+              -- Fallback: try with a delay
+              vim.schedule(function()
+                if vim.api.nvim_buf_is_valid(args.buf) and vim.api.nvim_buf_is_loaded(args.buf) then
+                  if vim.g.debug_formatting then
+                    vim.notify("Attempting delayed BufLeave format for: " .. filename, vim.log.levels.DEBUG)
+                  end
+                  format_buffer(args.buf, "buffer_leave")
+                elseif vim.g.debug_formatting then
+                  vim.notify("Skipping BufLeave format - buffer invalid/unloaded: " .. filename, vim.log.levels.DEBUG)
+                end
+              end)
+            end
           end
         end,
       })
@@ -423,6 +508,42 @@ return {
         local status = vim.g.format_on_refactor and "enabled" or "disabled"
         vim.notify("Format on refactor " .. status, vim.log.levels.INFO)
       end, { desc = "Toggle format on refactor" })
+
+      vim.api.nvim_create_user_command("ToggleFormatDebug", function()
+        vim.g.debug_formatting = not vim.g.debug_formatting
+        local status = vim.g.debug_formatting and "enabled" or "disabled"
+        vim.notify("Format debugging " .. status, vim.log.levels.INFO)
+      end, { desc = "Toggle format debugging" })
+
+      -- Debug command to check formatter availability
+      vim.api.nvim_create_user_command("FormatDebug", function()
+        local bufnr = vim.api.nvim_get_current_buf()
+        local filetype = vim.bo[bufnr].filetype
+        local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t")
+        local formatters = conform.list_formatters(bufnr)
+
+        local msg = string.format(
+          "Format Debug Info:\n" ..
+          "File: %s\n" ..
+          "Filetype: %s\n" ..
+          "Buffer valid: %s\n" ..
+          "Buffer loaded: %s\n" ..
+          "Available formatters: %s\n" ..
+          "Format on buffer leave: %s\n" ..
+          "Autosave in progress: %s\n" ..
+          "Formatting blocked: %s",
+          filename,
+          filetype,
+          tostring(vim.api.nvim_buf_is_valid(bufnr)),
+          tostring(vim.api.nvim_buf_is_loaded(bufnr)),
+          #formatters > 0 and table.concat(vim.tbl_map(function(f) return f.name end, formatters), ", ") or "None",
+          tostring(vim.g.format_on_buffer_leave),
+          tostring(vim.g._autosave_in_progress),
+          tostring(vim.g._formatting_blocked)
+        )
+
+        vim.notify(msg, vim.log.levels.INFO)
+      end, { desc = "Debug formatter availability" })
     end,
   },
 
@@ -494,6 +615,9 @@ return {
           hpp = true,
           cxx = true,
           rust = true,
+          python = true,
+          javascript = true,
+          typescript = true,
         },
         prompt_func_param_type = {
           go = true,
@@ -504,6 +628,9 @@ return {
           hpp = true,
           cxx = true,
           rust = true,
+          python = true,
+          javascript = true,
+          typescript = true,
         },
         printf_statements = {},
         print_var_statements = {},

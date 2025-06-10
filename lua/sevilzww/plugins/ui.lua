@@ -25,7 +25,7 @@ return {
           enabled = true,
           default_prompt = "Input",
           prompt_align = "left",
-          insert_only = true,
+          insert_only = false,
           start_in_insert = true,
           border = "rounded",
           relative = "cursor",
@@ -55,6 +55,16 @@ return {
               ["<Down>"] = "HistoryNext",
             },
           },
+
+          get_config = function(opts)
+            if opts.default and opts.default ~= "" then
+              return {
+                default = opts.default,
+                start_in_insert = true,
+              }
+            end
+            return {}
+          end,
         },
         select = {
           enabled = true,
