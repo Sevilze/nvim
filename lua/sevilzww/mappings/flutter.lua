@@ -30,15 +30,11 @@ function M.setup_buffer(client, bufnr)
 
   if has_flutter_tools then
     -- Flutter-tools commands
-    map("n", "<leader>fR", "<cmd>FlutterRestart<CR>", vim.tbl_extend("force", opts, { desc = "Flutter Restart" }))
-    map("n", "<leader>fh", "<cmd>FlutterReload<CR>", vim.tbl_extend("force", opts, { desc = "Flutter Hot Reload" }))
-    map("n", "<leader>fd", "<cmd>FlutterDevices<CR>", vim.tbl_extend("force", opts, { desc = "Flutter Devices" }))
     map("n", "<leader>fe", "<cmd>FlutterEmulators<CR>", vim.tbl_extend("force", opts, { desc = "Flutter Emulators" }))
     map("n", "<leader>fo", "<cmd>FlutterOutlineToggle<CR>", vim.tbl_extend("force", opts, { desc = "Flutter Outline" }))
     map("n", "<leader>fv", "<cmd>FlutterDevTools<CR>", vim.tbl_extend("force", opts, { desc = "Flutter DevTools" }))
     map("n", "<leader>fl", "<cmd>DartLspRestart<CR>", vim.tbl_extend("force", opts, { desc = "Dart/Flutter LSP Restart" }))
-    map("n", "<leader>fq", "<cmd>FlutterQuit<CR>", vim.tbl_extend("force", opts, { desc = "Flutter Quit" }))
-    map("n", "<leader>fr", "<cmd>FlutterRun<CR>", vim.tbl_extend("force", opts, { desc = "Flutter Run" }))
+    map("n", "<leader><leader>fr", "<cmd>FlutterRun<CR>", vim.tbl_extend("force", opts, { desc = "Flutter Run" }))
   else
     vim.notify("flutter-tools.nvim not found. Flutter commands won't work.", vim.log.levels.WARN)
   end

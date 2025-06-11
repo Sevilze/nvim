@@ -62,9 +62,9 @@ return {
         },
       }
 
-      vim.api.nvim_create_user_command("RustRun", function()
-        vim.cmd("terminal cargo run")
-      end, { desc = "Run Rust program" })
+      -- vim.api.nvim_create_user_command("RustRun", function()
+      --   vim.cmd("terminal cargo run")
+      -- end, { desc = "Run Rust program" })
 
       vim.api.nvim_create_user_command("RustTest", function()
         vim.cmd("terminal cargo test")

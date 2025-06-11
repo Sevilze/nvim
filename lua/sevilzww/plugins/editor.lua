@@ -24,6 +24,114 @@ local harpoon_cache = {
   ttl = 1000, -- cache lifetime in ms
 }
 
+-- Unified Harpoon-Telescope integration functions
+local harpoon_telescope_integration = {}
+
+-- Create a standardized Harpoon item with proper context
+local function create_harpoon_item(selection, opts)
+  opts = opts or {}
+  local item = {
+    value = selection.path,
+    context = {
+      row = opts.row or selection.lnum or 1,
+      col = opts.col or selection.col or 0,
+      text = opts.text or selection.text or "",
+    },
+  }
+  return item
+end
+
+-- Unified Harpoon add handler
+local function create_harpoon_add_handler(opts)
+  opts = opts or {}
+  return function(prompt_bufnr)
+    local action_state = require "telescope.actions.state"
+    local selection = action_state.get_selected_entry(prompt_bufnr)
+    if selection and selection.path then
+      local schedule_fn = opts.immediate and function(fn) fn() end or vim.schedule
+      schedule_fn(function()
+        local harpoon = require "harpoon"
+        local item = create_harpoon_item(selection, opts)
+        harpoon:list():add(item)
+
+        local context_info = ""
+        if item.context.row > 1 then
+          context_info = ":" .. item.context.row
+        end
+
+        local msg = opts.message_prefix or "Added "
+        notify(msg .. vim.fs.basename(selection.path) .. context_info .. " to Harpoon", vim.log.levels.INFO)
+      end)
+    end
+  end
+end
+
+-- Unified Harpoon remove handler
+local function create_harpoon_remove_handler(opts)
+  opts = opts or {}
+  return function(prompt_bufnr)
+    local action_state = require "telescope.actions.state"
+    local selection = action_state.get_selected_entry(prompt_bufnr)
+    if selection and selection.path then
+      local schedule_fn = opts.immediate and function(fn) fn() end or vim.schedule
+      schedule_fn(function()
+        local harpoon = require "harpoon"
+        local list = harpoon:list()
+
+        local normalized_path = vim.loop.fs_realpath(selection.path)
+        for i, item in ipairs(list.items) do
+          local item_path = vim.loop.fs_realpath(item.value)
+          if item_path == normalized_path then
+            list:remove_at(i)
+            notify("Removed " .. vim.fs.basename(selection.path) .. " from Harpoon", vim.log.levels.INFO)
+            break
+          end
+        end
+      end)
+    end
+  end
+end
+
+-- Create unified key mappings for Harpoon operations
+local function create_harpoon_mappings(map, opts)
+  opts = opts or {}
+  map("i", "<leader>a", create_harpoon_add_handler(opts))
+  if not opts.disable_remove then
+    map("i", "<leader>r", create_harpoon_remove_handler(opts))
+  end
+end
+
+-- Enhanced display function that adds Harpoon checkmarks
+local function create_harpoon_display_enhancer(original_display_fn, opts)
+  opts = opts or {}
+  return function(entry)
+    local display_output, display_hl = original_display_fn(entry)
+
+    if check_harpoon_list(entry.path) then
+      local checkmark = opts.checkmark or " ✓"
+      display_output = display_output .. checkmark
+      if not display_hl then
+        display_hl = {}
+      end
+      local display_len = #display_output
+      local checkmark_len = #checkmark
+      table.insert(display_hl, {
+        { display_len - checkmark_len + 1, display_len },
+        opts.highlight or "TelescopeResultsIdentifier"
+      })
+    end
+
+    return display_output, display_hl
+  end
+end
+
+-- Assign functions to the integration table
+harpoon_telescope_integration.create_harpoon_item = create_harpoon_item
+harpoon_telescope_integration.create_harpoon_add_handler = create_harpoon_add_handler
+harpoon_telescope_integration.create_harpoon_remove_handler = create_harpoon_remove_handler
+harpoon_telescope_integration.create_harpoon_mappings = create_harpoon_mappings
+harpoon_telescope_integration.create_harpoon_display_enhancer = create_harpoon_display_enhancer
+
 -- Editor related plugins
 return {
   -- git stuff
@@ -600,21 +708,8 @@ return {
                   end
                 end)
 
-                map("i", "<leader>a", function()
-                  local selection = action_state.get_selected_entry()
-                  if selection then
-                    local harpoon = require "harpoon"
-                    harpoon:list():add {
-                      value = selection.path,
-                      context = {
-                        row = 1,
-                        col = 0,
-                        text = "",
-                      },
-                    }
-                    notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
-                  end
-                end)
+                -- Use unified Harpoon mappings
+                create_harpoon_mappings(map, { immediate = true })
 
                 map("i", "<C-a>", function()
                   local picker = action_state.get_current_picker(prompt_bufnr)
@@ -622,14 +717,8 @@ return {
                   local added_count = 0
 
                   for entry in picker.manager:iter() do
-                    harpoon:list():add {
-                      value = entry.path,
-                      context = {
-                        row = 1,
-                        col = 0,
-                        text = "",
-                      },
-                    }
+                    local item = create_harpoon_item(entry)
+                    harpoon:list():add(item)
                     added_count = added_count + 1
                   end
 
@@ -691,20 +780,9 @@ return {
           local entry = entry_maker(line)
           local original_display = entry.display
 
-          entry.display = function(self)
-            local display_output, display_hl = original_display(self)
-
-            if check_harpoon_list(self.path) then
-              display_output = display_output .. " ✓"
-              if not display_hl then
-                display_hl = {}
-              end
-              local display_len = #display_output
-              table.insert(display_hl, { { display_len - 1, display_len }, "TelescopeResultsIdentifier" })
-            end
-
-            return display_output, display_hl
-          end
+          entry.display = create_harpoon_display_enhancer(
+            function(self) return original_display(self) end
+          )
 
           return entry
         end
@@ -732,51 +810,15 @@ return {
           },
           path_display = { "smart" },
           mappings = {
-            i = {
-              ["<leader>a"] = function(prompt_bufnr)
-                local selection = action_state.get_selected_entry(prompt_bufnr)
-                if selection and selection.path then
-                  vim.schedule(function()
-                    local harpoon = require "harpoon"
-                    harpoon:list():add {
-                      value = selection.path,
-                      context = {
-                        row = 1,
-                        col = 0,
-                        text = "",
-                      },
-                    }
-                    -- Harpoon cache is automatically invalidated
-                    vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
-                  end)
-                end
-              end,
-              ["<leader>r"] = function(prompt_bufnr)
-                local selection = action_state.get_selected_entry(prompt_bufnr)
-                if selection and selection.path then
-                  vim.schedule(function()
-                    local harpoon = require "harpoon"
-                    local list = harpoon:list()
-
-                    local normalized_path = vim.loop.fs_realpath(selection.path)
-                    for i, item in ipairs(list.items) do
-                      local item_path = vim.loop.fs_realpath(item.value)
-                      if item_path == normalized_path then
-                        list:remove_at(i)
-                        vim.notify(
-                          "Removed " .. vim.fs.basename(selection.path) .. " from Harpoon",
-                          vim.log.levels.INFO
-                        )
-                        break
-                      end
-                    end
-                  end)
-                end
-              end,
+            i = vim.tbl_extend("force", {
               ["<C-c>"] = actions.close,
               ["<C-u>"] = actions.preview_scrolling_up,
               ["<C-d>"] = actions.preview_scrolling_down,
-            },
+            }, {
+              -- Add unified Harpoon mappings
+              ["<leader>a"] = create_harpoon_add_handler(),
+              ["<leader>r"] = create_harpoon_remove_handler(),
+            }),
           },
         },
         pickers = {
@@ -787,27 +829,10 @@ return {
           live_grep = {
             mappings = {
               i = {
-                ["<leader>a"] = function(prompt_bufnr)
-                  local selection = action_state.get_selected_entry()
-                  if selection and selection.path then
-                    local context_text = selection.text or ""
-
-                    local item = {
-                      value = selection.path,
-                      context = {
-                        row = selection.lnum or 1,
-                        col = selection.col or 0,
-                        text = context_text,
-                      },
-                    }
-
-                    require("harpoon"):list():add(item)
-                    vim.notify(
-                      "Added " .. vim.fs.basename(selection.path) .. ":" .. (selection.lnum or 1) .. " to Harpoon",
-                      vim.log.levels.INFO
-                    )
-                  end
-                end,
+                ["<leader>a"] = create_harpoon_add_handler({
+                  immediate = true,
+                  message_prefix = "Added ",
+                }),
               },
             },
           },
@@ -893,6 +918,13 @@ return {
               },
             }
 
+            local base_display = function()
+              return displayer {
+                { icon, icon_hl },
+                entry.filename,
+              }
+            end
+
             if in_harpoon then
               return displayer {
                 { icon, icon_hl },
@@ -900,10 +932,7 @@ return {
                 { "✓", "TelescopeResultsIdentifier" },
               }
             else
-              return displayer {
-                { icon, icon_hl },
-                entry.filename,
-              }
+              return base_display()
             end
           end
 
@@ -1115,39 +1144,8 @@ return {
                 original_close(bufnr)
               end
 
-              map("i", "<leader>a", function()
-                local selection = action_state.get_selected_entry()
-                if selection then
-                  local harpoon = require "harpoon"
-                  harpoon:list():add {
-                    value = selection.path,
-                    context = {
-                      row = 1,
-                      col = 0,
-                      text = "",
-                    },
-                  }
-                  vim.notify("Added " .. vim.fs.basename(selection.path) .. " to Harpoon", vim.log.levels.INFO)
-                end
-              end)
-
-              map("i", "<leader>r", function()
-                local selection = action_state.get_selected_entry()
-                if selection then
-                  local harpoon = require "harpoon"
-                  local list = harpoon:list()
-
-                  local normalized_path = vim.loop.fs_realpath(selection.path)
-                  for i, item in ipairs(list.items) do
-                    local item_path = vim.loop.fs_realpath(item.value)
-                    if item_path == normalized_path then
-                      list:remove_at(i)
-                      vim.notify("Removed " .. vim.fs.basename(selection.path) .. " from Harpoon", vim.log.levels.INFO)
-                      break
-                    end
-                  end
-                end
-              end)
+              -- Use unified Harpoon mappings
+              create_harpoon_mappings(map, { immediate = true })
 
               return true
             end,

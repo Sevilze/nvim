@@ -19,12 +19,6 @@ function M.setup()
     {"n", "x"},
     "<leader>rr",
     function()
-      -- Handle conflicting mappings
-      if vim.bo.filetype == "rust" then
-        vim.notify("In Rust files, use <leader>rR for refactoring (to avoid conflict with RustRun)", vim.log.levels.INFO)
-        return
-      end
-
       local telescope_refactoring_ok, _ = pcall(require, 'telescope._extensions.refactoring')
       if telescope_refactoring_ok then
         require('telescope').extensions.refactoring.refactors()
@@ -36,91 +30,43 @@ function M.setup()
     { desc = "Refactor operations (Telescope)" }
   )
 
-  -- Alternative mapping for Rust files to avoid conflict
-  map(
-    {"n", "x"},
-    "<leader>rR",
-    function()
-      local telescope_refactoring_ok, _ = pcall(require, 'telescope._extensions.refactoring')
-      if telescope_refactoring_ok then
-        require('telescope').extensions.refactoring.refactors()
-      else
-        vim.notify("Telescope refactoring extension not loaded. Try :Telescope refactoring refactors", vim.log.levels.WARN)
-        refactoring.select_refactor()
-      end
-    end,
-    { desc = "Refactor operations (Telescope) - Rust safe" }
-  )
-
-  -- LSP rename with Telescope references preview
+  -- LSP rename with symbol pre-population
   map("n", "<leader>rn", function()
-    -- First show references using Telescope, then perform rename
-    local function show_references_and_rename()
-      local params = vim.lsp.util.make_position_params()
-      vim.lsp.buf_request(0, "textDocument/references", params, function(err, result, ctx, config)
-        if err then
-          vim.notify("Error getting references: " .. err.message, vim.log.levels.ERROR)
-          return
-        end
-
-        if not result or vim.tbl_isempty(result) then
-          vim.notify("No references found", vim.log.levels.INFO)
-          vim.ui.input({ prompt = "New name: " }, function(new_name)
-            if new_name and new_name ~= "" then
-              vim.lsp.buf.rename(new_name)
-              -- Format after rename operation
-              vim.schedule(function()
-                if _G.format_after_refactor then
-                  _G.format_after_refactor(vim.api.nvim_get_current_buf())
-                end
-              end)
-            end
-          end)
-          return
-        end
-
-        -- Use Telescope to show references before renaming
-        require("telescope.builtin").lsp_references({
-          prompt_title = "References (Press <CR> to rename)",
-          attach_mappings = function(prompt_bufnr, map_func)
-            map_func("i", "<CR>", function()
-              require("telescope.actions").close(prompt_bufnr)
-              vim.schedule(function()
-                vim.ui.input({ prompt = "New name: " }, function(new_name)
-                  if new_name and new_name ~= "" then
-                    vim.lsp.buf.rename(new_name)
-                    vim.schedule(function()
-                      if _G.format_after_refactor then
-                        _G.format_after_refactor(vim.api.nvim_get_current_buf())
-                      end
-                    end)
-                  end
-                end)
-              end)
-            end)
-            map_func("n", "<CR>", function()
-              require("telescope.actions").close(prompt_bufnr)
-              vim.schedule(function()
-                vim.ui.input({ prompt = "New name: " }, function(new_name)
-                  if new_name and new_name ~= "" then
-                    vim.lsp.buf.rename(new_name)
-                    vim.schedule(function()
-                      if _G.format_after_refactor then
-                        _G.format_after_refactor(vim.api.nvim_get_current_buf())
-                      end
-                    end)
-                  end
-                end)
-              end)
-            end)
-            return true
-          end,
-        })
-      end)
+    -- Get the current word under cursor
+    local current_word = vim.fn.expand("<cword>")
+    if current_word == "" then
+      vim.notify("No symbol under cursor", vim.log.levels.WARN)
+      return
     end
 
-    show_references_and_rename()
-  end, { desc = "LSP rename with references preview" })
+    local function get_symbol_under_cursor()
+      local word1 = vim.fn.expand("<cword>")
+      if word1 ~= "" then return word1 end
+      return ""
+    end
+
+    local symbol = get_symbol_under_cursor()
+    if symbol == "" then
+      vim.notify("No symbol found under cursor", vim.log.levels.WARN)
+      return
+    end
+
+    vim.ui.input({
+      prompt = "New name: ",
+      default = symbol,
+      completion = nil,
+    }, function(new_name)
+      if new_name and new_name ~= "" and new_name ~= symbol then
+        vim.lsp.buf.rename(new_name)
+        -- Format after rename operation
+        vim.schedule(function()
+          if _G.format_after_refactor then
+            _G.format_after_refactor(vim.api.nvim_get_current_buf())
+          end
+        end)
+      end
+    end)
+  end, { desc = "LSP rename with symbol pre-population" })
 
   -- Helper function to format after refactoring
   local function refactor_with_formatting(operation)
@@ -136,59 +82,59 @@ function M.setup()
     end
   end
 
-  -- Extract function
+  -- Extract function (visual mode only)
   map(
-    {"x"},
+    "x",
     "<leader>re",
-    refactor_with_formatting('Extract Function'),
+    function() return refactoring.refactor('Extract Function') end,
     { expr = true, desc = "Extract function" }
   )
 
-  -- Extract function to file
+  -- Extract function to file (visual mode only)
   map(
-    {"x"},
+    "x",
     "<leader>rf",
-    refactor_with_formatting('Extract Function To File'),
+    function() return refactoring.refactor('Extract Function To File') end,
     { expr = true, desc = "Extract function to file" }
   )
 
-  -- Extract variable
+  -- Extract variable (visual mode only)
   map(
-    {"x"},
+    "x",
     "<leader>rv",
-    refactor_with_formatting('Extract Variable'),
+    function() return refactoring.refactor('Extract Variable') end,
     { expr = true, desc = "Extract variable" }
   )
 
-  -- Extract block
+  -- Extract block (normal mode only)
   map(
-    {"n"},
+    "n",
     "<leader>rb",
-    refactor_with_formatting('Extract Block'),
+    function() return refactoring.refactor('Extract Block') end,
     { expr = true, desc = "Extract block" }
   )
 
-  -- Extract block to file
+  -- Extract block to file (normal mode only)
   map(
-    {"n"},
+    "n",
     "<leader>rbf",
-    refactor_with_formatting('Extract Block To File'),
+    function() return refactoring.refactor('Extract Block To File') end,
     { expr = true, desc = "Extract block to file" }
   )
 
-  -- Inline function
+  -- Inline function (normal mode only)
   map(
-    {"n"},
+    "n",
     "<leader>rI",
-    refactor_with_formatting('Inline Function'),
+    function() return refactoring.refactor('Inline Function') end,
     { expr = true, desc = "Inline function" }
   )
 
-  -- Inline variable
+  -- Inline variable (both normal and visual mode)
   map(
     {"n", "x"},
     "<leader>ri",
-    refactor_with_formatting('Inline Variable'),
+    function() return refactoring.refactor('Inline Variable') end,
     { expr = true, desc = "Inline variable" }
   )
 
@@ -229,20 +175,7 @@ function M.setup()
   map("n", "<leader>rbb", ":Refactor extract_block", { desc = "Extract block (with preview)" })
   map("n", "<leader>rbbf", ":Refactor extract_block_to_file", { desc = "Extract block to file (with preview)" })
 
-  -- Quick access to LSP references and definitions with Telescope
-  map("n", "<leader>rrf", function()
-    require("telescope.builtin").lsp_references()
-  end, { desc = "Show references (Telescope)" })
-
   -- Alternative non-conflicting mappings for LSP navigation
-  map("n", "gr", function()
-    require("telescope.builtin").lsp_references()
-  end, { desc = "Show references (Telescope)" })
-
-  map("n", "gd", function()
-    require("telescope.builtin").lsp_definitions()
-  end, { desc = "Show definitions (Telescope)" })
-
   map("n", "<leader>rD", function()
     require("telescope.builtin").lsp_definitions()
   end, { desc = "Show definitions (Telescope)" })
@@ -267,71 +200,34 @@ function M.setup()
   end, { desc = "Open refactoring operations in Telescope" })
 
   vim.api.nvim_create_user_command("RefactorRename", function()
-    -- Show references first, then rename
-    local params = vim.lsp.util.make_position_params()
-    vim.lsp.buf_request(0, "textDocument/references", params, function(err, result, ctx, config)
-      if err then
-        vim.notify("Error getting references: " .. err.message, vim.log.levels.ERROR)
-        return
-      end
+    local function get_symbol_under_cursor()
+      local symbol = vim.fn.expand("<cword>")
+      if symbol ~= "" then return symbol end
 
-      if not result or vim.tbl_isempty(result) then
-        vim.notify("No references found", vim.log.levels.INFO)
-        vim.ui.input({ prompt = "New name: " }, function(new_name)
-          if new_name and new_name ~= "" then
-            vim.lsp.buf.rename(new_name)
-            vim.schedule(function()
-              if _G.format_after_refactor then
-                _G.format_after_refactor(vim.api.nvim_get_current_buf())
-              end
-            end)
+      return ""
+    end
+
+    local symbol = get_symbol_under_cursor()
+    if symbol == "" then
+      vim.notify("No symbol found under cursor", vim.log.levels.WARN)
+      return
+    end
+
+    -- Use vim.ui.input with the current word as default
+    vim.ui.input({
+      prompt = "New name: ",
+      default = symbol
+    }, function(new_name)
+      if new_name and new_name ~= "" and new_name ~= symbol then
+        vim.lsp.buf.rename(new_name)
+        vim.schedule(function()
+          if _G.format_after_refactor then
+            _G.format_after_refactor(vim.api.nvim_get_current_buf())
           end
         end)
-        return
       end
-
-      require("telescope.builtin").lsp_references({
-        prompt_title = "References (Press <CR> to rename)",
-        attach_mappings = function(prompt_bufnr, map_func)
-          map_func("i", "<CR>", function()
-            require("telescope.actions").close(prompt_bufnr)
-            vim.schedule(function()
-              vim.ui.input({ prompt = "New name: " }, function(new_name)
-                if new_name and new_name ~= "" then
-                  vim.lsp.buf.rename(new_name)
-                  vim.schedule(function()
-                    if _G.format_after_refactor then
-                      _G.format_after_refactor(vim.api.nvim_get_current_buf())
-                    end
-                  end)
-                end
-              end)
-            end)
-          end)
-          map_func("n", "<CR>", function()
-            require("telescope.actions").close(prompt_bufnr)
-            vim.schedule(function()
-              vim.ui.input({ prompt = "New name: " }, function(new_name)
-                if new_name and new_name ~= "" then
-                  vim.lsp.buf.rename(new_name)
-                  vim.schedule(function()
-                    if _G.format_after_refactor then
-                      _G.format_after_refactor(vim.api.nvim_get_current_buf())
-                    end
-                  end)
-                end
-              end)
-            end)
-          end)
-          return true
-        end,
-      })
     end)
-  end, { desc = "Rename symbol with references preview" })
-
-  vim.api.nvim_create_user_command("RefactorReferences", function()
-    require("telescope.builtin").lsp_references()
-  end, { desc = "Show references in Telescope" })
+  end, { desc = "Rename symbol with symbol pre-population" })
 end
 
 return M

@@ -1,6 +1,23 @@
 -- Harpoon mappings
 local M = {}
 
+local harpoon_utils = {}
+
+local function notify(msg, level)
+  local timeout = 1000
+  if level == vim.log.levels.ERROR then
+    timeout = 5000
+  elseif level == vim.log.levels.WARN then
+    timeout = 3000
+  end
+
+  vim.notify(msg, level or vim.log.levels.INFO, {
+    timeout = timeout,
+    title = "Harpoon",
+    icon = "󱡅",
+  })
+end
+
 local function jump_to_context(item)
   local context_text = ""
   if context_text and context_text ~= "" then
@@ -14,27 +31,28 @@ local function jump_to_context(item)
       vim.cmd "normal! zz" -- Center the buffer line to the screen
     else
       vim.api.nvim_win_set_cursor(0, { item.row or 1, item.col and (item.col - 1) or 0 })
-      vim.notify("Original context not found, jumped to stored line number.", vim.log.levels.WARN)
+      notify("Original context not found, jumped to stored line number.", vim.log.levels.WARN)
     end
   else
     vim.api.nvim_win_set_cursor(0, { item.row or 1, item.col and (item.col - 1) or 0 })
   end
 end
 
-local function notify(msg, level)
-  local timeout = 1000
-  if level == vim.log.levels.ERROR then
-    timeout = 5000
-  elseif level == vim.log.levels.WARN then
-    timeout = 3000
+-- Calculate new cursor position after item removal
+harpoon_utils.calculate_new_cursor_position = function(current_line, removed_index, list_length)
+  local new_cursor_line = current_line
+  if current_line > removed_index then
+    -- If cursor was after the removed item, move it up by one
+    new_cursor_line = current_line - 1
+  elseif current_line == removed_index then
+    -- If cursor was on the removed item, keep it at the same position or move to end
+    new_cursor_line = math.min(current_line, list_length)
   end
-
-  vim.notify(msg, level or vim.log.levels.INFO, {
-    timeout = timeout,
-  })
+  -- If cursor was before the removed item, keep it at the same position
+  return new_cursor_line
 end
 
-local function remove_at_with_compaction(list, index)
+harpoon_utils.remove_at_with_compaction = function(list, index)
   if not list or not list.items or index < 1 or index > #list.items then
     return false
   end
@@ -57,8 +75,67 @@ local function remove_at_with_compaction(list, index)
   return true
 end
 
--- Reopen default Harpoon menu with cursor position preservation 
-local function reopen_harpoon_menu_with_cursor(target_line)
+-- Safe item selection with error handling
+harpoon_utils.safe_select_item = function(index)
+  local success, err = pcall(function()
+    local harpoon = require "harpoon"
+    local list = harpoon:list()
+
+    -- Validate list exists and has items
+    if not list then
+      error "Harpoon list is nil"
+    end
+
+    if not list.items then
+      error "Harpoon list.items is nil"
+    end
+
+    if index > #list.items then
+      error("Index " .. index .. " exceeds list length " .. #list.items)
+    end
+
+    if index < 1 then
+      error("Index " .. index .. " is less than 1")
+    end
+
+    local item = list.items[index]
+    if not item then
+      error("Item at index " .. index .. " is nil")
+    end
+
+    if not item.value then
+      error("Item value at index " .. index .. " is nil")
+    end
+
+    list:select(index)
+    return item
+  end)
+
+  if not success then
+    notify("Failed to select Harpoon item " .. index .. ": " .. tostring(err), vim.log.levels.ERROR)
+    return nil
+  end
+
+  return err -- This is actually the item when success is true
+end
+
+harpoon_utils.select_and_jump_to_item = function(index, close_menu)
+  if close_menu then
+    vim.cmd "bdelete!"
+  end
+
+  vim.schedule(function()
+    local item = harpoon_utils.safe_select_item(index)
+    if item and item.context and item.context.row then
+      vim.schedule(function()
+        pcall(jump_to_context, item.context)
+      end)
+    end
+  end)
+end
+
+-- Reopen default Harpoon menu with cursor position preservation
+harpoon_utils.reopen_harpoon_menu_with_cursor = function(target_line)
   vim.schedule(function()
     local harpoon = require("harpoon")
     local list = harpoon:list()
@@ -102,6 +179,75 @@ local function reopen_harpoon_menu_with_cursor(target_line)
   end)
 end
 
+harpoon_utils.remove_item_with_menu_handling = function(index, opts)
+  opts = opts or {}
+  local harpoon = require("harpoon")
+  local list = harpoon:list()
+
+  if index > list:length() then
+    notify("No Harpoon mark at index " .. index, vim.log.levels.WARN)
+    return
+  end
+
+  local was_menu_open = vim.bo.filetype == "harpoon"
+  local current_line = opts.current_line or 1
+
+  if was_menu_open and opts.close_menu then
+    vim.cmd "bdelete!"
+  end
+
+  harpoon_utils.remove_at_with_compaction(list, index)
+  notify("Removed Harpoon mark #" .. index)
+
+  if was_menu_open and opts.reopen_menu then
+    local new_cursor_line = harpoon_utils.calculate_new_cursor_position(current_line, index, list:length())
+    harpoon_utils.reopen_harpoon_menu_with_cursor(new_cursor_line)
+  end
+end
+
+harpoon_utils.create_selection_keymap = function(key, index, buffer_opts)
+  local opts = vim.tbl_extend("force", {
+    noremap = true,
+    silent = true,
+    desc = "Select item " .. index
+  }, buffer_opts or {})
+
+  return vim.keymap.set("n", key, function()
+    harpoon_utils.select_and_jump_to_item(index, true)
+  end, opts)
+end
+
+harpoon_utils.create_removal_keymap = function(key, index, buffer_opts)
+  local opts = vim.tbl_extend("force", {
+    noremap = true,
+    silent = true,
+    desc = "Remove item " .. index
+  }, buffer_opts or {})
+
+  return vim.keymap.set("n", key, function()
+    local current_line = vim.api.nvim_win_get_cursor(0)[1]
+    harpoon_utils.remove_item_with_menu_handling(index, {
+      current_line = current_line,
+      close_menu = true,
+      reopen_menu = true,
+    })
+  end, opts)
+end
+
+harpoon_utils.create_numbered_keymaps = function(buffer_opts)
+  for i = 1, 30 do
+    if i <= 9 then
+      -- Single digit mappings
+      harpoon_utils.create_selection_keymap(tostring(i), i, buffer_opts)
+      harpoon_utils.create_removal_keymap("<leader>m" .. i, i, buffer_opts)
+    elseif i >= 10 then
+      -- Double digit mappings with leader prefix
+      harpoon_utils.create_selection_keymap("<leader>" .. i, i, buffer_opts)
+      harpoon_utils.create_removal_keymap("<leader><leader>m" .. i, i, buffer_opts)
+    end
+  end
+end
+
 M.setup = function()
   local harpoon = require "harpoon"
   local harpoon_float = require "sevilzww.utils.harpoon_float"
@@ -122,50 +268,6 @@ M.setup = function()
     end
   end, { desc = "harpoon remove current file" })
 
-  -- Safe select function for Harpoon menu
-  local function safe_select_item(index)
-    local success, err = pcall(function()
-      local harpoon = require "harpoon"
-      local list = harpoon:list()
-
-      -- Validate list exists and has items
-      if not list then
-        error "Harpoon list is nil"
-      end
-
-      if not list.items then
-        error "Harpoon list.items is nil"
-      end
-
-      if index > #list.items then
-        error("Index " .. index .. " exceeds list length " .. #list.items)
-      end
-
-      if index < 1 then
-        error("Index " .. index .. " is less than 1")
-      end
-
-      local item = list.items[index]
-      if not item then
-        error("Item at index " .. index .. " is nil")
-      end
-
-      if not item.value then
-        error("Item value at index " .. index .. " is nil")
-      end
-
-      list:select(index)
-      return item
-    end)
-
-    if not success then
-      notify("Failed to select Harpoon item " .. index .. ": " .. tostring(err), vim.log.levels.ERROR)
-      return nil
-    end
-
-    return err -- This is actually the item when success is true
-  end
-
   -- Set up autocmd to add keybindings to the Harpoon menu buffer
   vim.api.nvim_create_autocmd("FileType", {
     pattern = "harpoon",
@@ -175,188 +277,49 @@ M.setup = function()
       -- Override Enter key to use safe selection
       vim.keymap.set("n", "<CR>", function()
         local line = vim.api.nvim_win_get_cursor(0)[1]
-        vim.cmd "bdelete!"
-
-        vim.schedule(function()
-          local item = safe_select_item(line)
-          if item and item.context and item.context.row then
-            vim.schedule(function()
-              pcall(jump_to_context, item.context)
-            end)
-          end
-        end)
+        harpoon_utils.select_and_jump_to_item(line, true)
       end, { buffer = buf, noremap = true, silent = true, desc = "Select Harpoon item" })
 
-      -- Map keys for items 1-30 in the menu
-      for i = 1, 30 do
-        if i <= 9 then
-          vim.keymap.set("n", tostring(i), function()
-            vim.cmd "bdelete!"
-
-            vim.schedule(function()
-              local item = safe_select_item(i)
-              if item and item.context and item.context.row then
-                vim.schedule(function()
-                  pcall(jump_to_context, item.context)
-                end)
-              end
-            end)
-          end, { buffer = buf, noremap = true, silent = true, desc = "Select item " .. i })
-
-          vim.keymap.set("n", "<leader>m" .. i, function()
-            local current_line = vim.api.nvim_win_get_cursor(0)[1]
-            vim.cmd "bdelete!"
-
-            vim.schedule(function()
-              local list = require("harpoon"):list()
-              if i <= list:length() then
-                remove_at_with_compaction(list, i)
-
-                -- Calculate new cursor position after removal
-                local new_cursor_line = current_line
-                if current_line > i then
-                  -- If cursor was after the removed item, move it up by one
-                  new_cursor_line = current_line - 1
-                elseif current_line == i then
-                  -- If cursor was on the removed item, keep it at the same position
-                  new_cursor_line = math.min(current_line, list:length())
-                end
-                -- If cursor was before the removed item, keep it at the same position
-
-                reopen_harpoon_menu_with_cursor(new_cursor_line)
-                notify("Removed Harpoon mark #" .. i)
-              else
-                notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
-              end
-            end)
-          end, { buffer = buf, noremap = true, silent = true, desc = "Remove item " .. i })
-        elseif i >= 10 then
-          -- Use leader prefix for numbers 10-30
-          vim.keymap.set("n", "<leader>" .. i, function()
-            vim.cmd "bdelete!"
-
-            vim.schedule(function()
-              local item = safe_select_item(i)
-              if item and item.context and item.context.row then
-                vim.schedule(function()
-                  pcall(jump_to_context, item.context)
-                end)
-              end
-            end)
-          end, { buffer = buf, noremap = true, silent = true, desc = "Select item " .. i })
-
-          -- Add removal mapping with leader leader m prefix
-          vim.keymap.set("n", "<leader><leader>m" .. i, function()
-            local current_line = vim.api.nvim_win_get_cursor(0)[1]
-            vim.cmd "bdelete!"
-
-            vim.schedule(function()
-              local list = require("harpoon"):list()
-              if i <= list:length() then
-                remove_at_with_compaction(list, i)
-
-                local new_cursor_line = current_line
-                if current_line > i then
-                  new_cursor_line = current_line - 1
-                elseif current_line == i then
-                  new_cursor_line = math.min(current_line, list:length())
-                end
-                reopen_harpoon_menu_with_cursor(new_cursor_line)
-                notify("Removed Harpoon mark #" .. i)
-              else
-                notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
-              end
-            end)
-          end, { buffer = buf, noremap = true, silent = true, desc = "Remove item " .. i })
-        end
-      end
+      harpoon_utils.create_numbered_keymaps({ buffer = buf })
     end,
     once = false,
   })
 
-  -- Normal mode mappings
   for i = 1, 30 do
     if i <= 9 then
       map("n", "<leader>" .. i, function()
-        vim.schedule(function()
-          local item = safe_select_item(i)
-          if item and item.context and item.context.row then
-            vim.schedule(function()
-              pcall(jump_to_context, item.context)
-            end)
-          end
-        end)
+        harpoon_utils.select_and_jump_to_item(i, false)
       end, { desc = "harpoon to file " .. i })
 
       map("n", "<leader>m" .. i, function()
-        local list = harpoon:list()
-        if i <= list:length() then
-          local was_menu_open = vim.bo.filetype == "harpoon"
-          local current_line = 1
+        local was_menu_open = vim.bo.filetype == "harpoon"
+        local current_line = was_menu_open and vim.api.nvim_win_get_cursor(0)[1] or 1
 
-          if was_menu_open then
-            current_line = vim.api.nvim_win_get_cursor(0)[1]
-            vim.cmd "bdelete!"
-          end
-
-          remove_at_with_compaction(list, i)
-          notify("Removed Harpoon mark #" .. i)
-
-          if was_menu_open then
-            local new_cursor_line = current_line
-            if current_line > i then
-              new_cursor_line = current_line - 1
-            elseif current_line == i then
-              new_cursor_line = math.min(current_line, list:length())
-            end
-            reopen_harpoon_menu_with_cursor(new_cursor_line)
-          end
-        else
-          notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
-        end
+        harpoon_utils.remove_item_with_menu_handling(i, {
+          current_line = current_line,
+          close_menu = was_menu_open,
+          reopen_menu = was_menu_open,
+        })
       end, { desc = "harpoon remove item " .. i })
     elseif i >= 10 then
       map("n", "<leader><leader>" .. i, function()
-        vim.schedule(function()
-          local item = safe_select_item(i)
-          if item and item.context and item.context.row then
-            vim.schedule(function()
-              pcall(jump_to_context, item.context)
-            end)
-          end
-        end)
+        harpoon_utils.select_and_jump_to_item(i, false)
       end, { desc = "harpoon to file " .. i })
 
       map("n", "<leader><leader>m" .. i, function()
-        local list = harpoon:list()
-        if i <= list:length() then
-          local was_menu_open = vim.bo.filetype == "harpoon"
-          local current_line = 1
+        local was_menu_open = vim.bo.filetype == "harpoon"
+        local current_line = was_menu_open and vim.api.nvim_win_get_cursor(0)[1] or 1
 
-          if was_menu_open then
-            current_line = vim.api.nvim_win_get_cursor(0)[1]
-            vim.cmd "bdelete!"
-          end
-
-          remove_at_with_compaction(list, i)
-          notify("Removed Harpoon mark #" .. i)
-
-          if was_menu_open then
-            local new_cursor_line = current_line
-            if current_line > i then
-              new_cursor_line = current_line - 1
-            elseif current_line == i then
-              new_cursor_line = math.min(current_line, list:length())
-            end
-            reopen_harpoon_menu_with_cursor(new_cursor_line)
-          end
-        else
-          notify("No Harpoon mark at index " .. i, vim.log.levels.WARN)
-        end
+        harpoon_utils.remove_item_with_menu_handling(i, {
+          current_line = current_line,
+          close_menu = was_menu_open,
+          reopen_menu = was_menu_open,
+        })
       end, { desc = "harpoon remove item " .. i })
     end
   end
 
+  -- Menu and navigation mappings
   map("n", "<leader>mf", function()
     local success, err = pcall(function()
       harpoon.ui:toggle_quick_menu(harpoon:list())
@@ -367,22 +330,19 @@ M.setup = function()
     end
   end, { desc = "harpoon menu" })
 
-  -- Toggle floating Harpoon window
   map("n", "<leader>mw", function()
     harpoon_float.toggle()
   end, { desc = "harpoon floating window" })
 
-  -- Toggle previous & next buffers stored within Harpoon list
   map("n", "<leader>mz", function()
     harpoon:list():prev()
   end, { desc = "harpoon prev file" })
+
   map("n", "<leader>mx", function()
     harpoon:list():next()
   end, { desc = "harpoon next file" })
 
-  -- Clear list command
   map("n", "<leader>mc", function()
-    local harpoon = require "harpoon"
     local was_menu_open = vim.bo.filetype == "harpoon"
 
     if was_menu_open then
@@ -397,13 +357,13 @@ M.setup = function()
     end
 
     if was_menu_open then
-      reopen_harpoon_menu_with_cursor(1)
-      notify "Cleared Harpoon list"
-    else
-      notify "Cleared Harpoon list"
+      harpoon_utils.reopen_harpoon_menu_with_cursor(1)
     end
+
+    notify "Cleared Harpoon list"
   end, { desc = "harpoon clear list" })
 
+  -- File operations
   map("n", "<leader>ml", function()
     vim.cmd "HarpoonReload"
   end, { desc = "harpoon reload from file" })
