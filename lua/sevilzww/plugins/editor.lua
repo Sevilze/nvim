@@ -265,6 +265,74 @@ return {
         require("sevilzww.mappings.harpoon").setup()
       end)
 
+      local current_list = nil
+      local function capture_current_list()
+        local harpoon = require "harpoon"
+        local list = harpoon:list()
+        if list and list.items and #list.items > 0 then
+          current_list = {}
+          for _, item in ipairs(list.items) do
+            if item and item.value then
+              table.insert(current_list, {
+                value = item.value,
+                context = item.context or { row = 1, col = 0 },
+              })
+            end
+          end
+          return true
+        else
+          current_list = {}
+          return false
+        end
+      end
+
+      local function status_dir(dir)
+        if dir == vim.fn.expand "~" or dir:match "^/tmp" then
+          return false
+        end
+        return true
+      end
+
+      local function save_dir(dir)
+        if not status_dir(dir) or not current_list or #current_list == 0 then
+          return false
+        end
+
+        local project_name = vim.fn.fnamemodify(dir, ":t")
+        local save_path = vim.fn.stdpath "data" .. "/harpoon/"
+        vim.fn.mkdir(save_path, "p")
+        local project_file = save_path .. project_name .. ".json"
+        local json_data = vim.fn.json_encode { mark = { items = current_list } }
+
+        local f, err = io.open(project_file, "w")
+        if not f then
+          vim.notify("Failed to open file for writing: " .. err, vim.log.levels.ERROR)
+          return false
+        end
+        f:write(json_data)
+        f:close()
+
+        notify("Saved Harpoon state for: " .. project_name .. " (" .. #current_list .. " items)")
+        return true
+      end
+
+      -- File validation functions
+      local function validate_file_path(file_path)
+        if not file_path or file_path == "" then
+          return false, "Empty file path"
+        end
+
+        -- Convert relative paths to absolute paths
+        local abs_path = vim.fn.fnamemodify(file_path, ":p")
+
+        -- Check if file exists
+        if vim.fn.filereadable(abs_path) == 1 then
+          return true, abs_path
+        end
+
+        return false, "File does not exist: " .. abs_path
+      end
+
       local function load_harpoon_for_current_dir()
         local cwd = vim.fn.getcwd()
         local project_name = vim.fn.fnamemodify(cwd, ":t")
@@ -297,6 +365,9 @@ return {
               if list then
                 list:clear()
 
+                local valid_items = {}
+                local removed_count = 0
+
                 for _, item in ipairs(data.mark.items) do
                   local success, result = pcall(function()
                     if type(item) == "table" then
@@ -327,11 +398,39 @@ return {
                   end)
 
                   if success and result.value then
-                    list:add(result)
+                    local is_valid, validated_path = validate_file_path(result.value)
+
+                    if is_valid then
+                      -- File exists, add to valid items
+                      result.value = validated_path
+                      table.insert(valid_items, result)
+                    else
+                      -- File doesn't exist, remove from list
+                      removed_count = removed_count + 1
+                      notify("Removed missing file: " .. vim.fs.basename(result.value), vim.log.levels.WARN)
+                    end
                   end
                 end
 
-                notify("Loaded " .. #data.mark.items .. " items from Harpoon for " .. project_name)
+                for _, valid_item in ipairs(valid_items) do
+                  list:add(valid_item)
+                end
+
+                local total_loaded = #valid_items
+                local summary_msg = "Loaded " .. total_loaded .. " items from Harpoon for " .. project_name
+                if removed_count > 0 then
+                  summary_msg = summary_msg .. " (removed " .. removed_count .. " missing files)"
+                end
+
+                notify(summary_msg, removed_count > 0 and vim.log.levels.WARN or vim.log.levels.INFO)
+
+                if removed_count > 0 then
+                  vim.schedule(function()
+                    capture_current_list()
+                    save_dir(cwd)
+                  end)
+                end
+
                 return true
               end
             end
@@ -344,74 +443,7 @@ return {
         load_harpoon_for_current_dir()
       end)
 
-      local function status_dir(dir)
-        if dir == vim.fn.expand "~" or dir:match "^/tmp" then
-          return false
-        end
 
-        return true
-      end
-
-      local current_list = nil
-      local function capture_current_list()
-        local harpoon = require "harpoon"
-        local list = harpoon:list()
-        if list and list.items and #list.items > 0 then
-          current_list = {}
-          for _, item in ipairs(list.items) do
-            local success, result = pcall(function()
-              local value = item.value
-              local context = item.context or {}
-
-              -- Ensure context has proper structure
-              if type(context) == "string" then
-                context = { text = context }
-              end
-
-              return {
-                value = value,
-                context = {
-                  row = context.row or 1,
-                  col = context.col or 0,
-                  text = context.text or "",
-                },
-              }
-            end)
-
-            if success and result.value then
-              table.insert(current_list, result)
-            end
-          end
-
-          return #current_list > 0
-        else
-          current_list = nil
-          return false
-        end
-      end
-
-      local function save_dir(dir)
-        if not status_dir(dir) or not current_list or #current_list == 0 then
-          return false
-        end
-
-        local project_name = vim.fn.fnamemodify(dir, ":t")
-        local save_path = vim.fn.stdpath "data" .. "/harpoon/"
-        vim.fn.mkdir(save_path, "p")
-        local project_file = save_path .. project_name .. ".json"
-        local json_data = vim.fn.json_encode { mark = { items = current_list } }
-
-        local f, err = io.open(project_file, "w")
-        if not f then
-          vim.notify("Failed to open file for writing: " .. err, vim.log.levels.ERROR)
-          return false
-        end
-        f:write(json_data)
-        f:close()
-
-        notify("Saved Harpoon state for: " .. project_name .. " (" .. #current_list .. " items)")
-        return true
-      end
 
       vim.api.nvim_create_autocmd("DirChangedPre", {
         pattern = "*",
