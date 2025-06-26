@@ -71,18 +71,143 @@ return {
     config = function()
       vim.o.autoread = true
 
-      -- Trigger autoread when files change on disk
-      vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter" }, {
+      -- State tracking for focus event safety
+      local focus_state = {
+        last_focus_time = 0,
+        focus_debounce_ms = 100,
+        pending_checktime = false,
+        autosave_in_progress = false,
+      }
+
+      -- Safe checktime function with validation
+      local function safe_checktime()
+        -- Don't run checktime if we're in certain modes or states
+        local current_mode = vim.fn.mode()
+        if current_mode == 'c' or current_mode == 'i' or current_mode == 'R' then
+          return
+        end
+
+        -- Don't run checktime if autosave is in progress
+        if vim.g._autosave_in_progress or focus_state.autosave_in_progress then
+          return
+        end
+
+        -- Don't run checktime if file deletion blocking is active and we're in a dangerous state
+        if vim.g.file_deletion_blocked then
+          local current_buf = vim.api.nvim_get_current_buf()
+          if not vim.api.nvim_buf_is_valid(current_buf) then
+            return
+          end
+
+          local buf_name = vim.api.nvim_buf_get_name(current_buf)
+          if buf_name == "" then
+            return
+          end
+
+          -- Check if buffer has unsaved changes
+          if vim.bo[current_buf].modified then
+            -- Don't run checktime on modified buffers to prevent data loss
+            return
+          end
+        end
+
+        -- Validate buffer state before running checktime
+        local current_buf = vim.api.nvim_get_current_buf()
+        if not vim.api.nvim_buf_is_valid(current_buf) then
+          return
+        end
+
+        local buf_name = vim.api.nvim_buf_get_name(current_buf)
+        if buf_name ~= "" then
+          -- Check if the file still exists before running checktime
+          local file_exists = vim.fn.filereadable(buf_name) == 1
+          if file_exists then
+            -- Only run checktime if the file exists and buffer is in a safe state
+            pcall(vim.cmd.checktime)
+          else
+            vim.notify("Skipped checktime for missing file: " .. vim.fs.basename(buf_name), vim.log.levels.DEBUG)
+          end
+        end
+      end
+
+      -- Debounced focus event handler
+      local function handle_focus_gained()
+        local now = vim.loop.now()
+
+        -- Debounce rapid focus events
+        if now - focus_state.last_focus_time < focus_state.focus_debounce_ms then
+          return
+        end
+
+        focus_state.last_focus_time = now
+
+        -- Schedule safe checktime to avoid race conditions
+        if not focus_state.pending_checktime then
+          focus_state.pending_checktime = true
+          vim.schedule(function()
+            safe_checktime()
+            focus_state.pending_checktime = false
+          end)
+        end
+      end
+
+      vim.api.nvim_create_autocmd("FocusGained", {
         pattern = "*",
-        command = "if mode() != 'c' | checktime | endif",
+        callback = handle_focus_gained,
+        desc = "Safe focus gained handler with file validation"
       })
 
-      -- Notification after file change
-      vim.api.nvim_create_autocmd("FileChangedShellPost", {
+      -- Safer BufEnter handling
+      vim.api.nvim_create_autocmd("BufEnter", {
         pattern = "*",
         callback = function()
-          vim.notify("File changed on disk. Buffer reloaded.", vim.log.levels.WARN)
+          -- Only run checktime on BufEnter if we're not in a focus transition
+          local now = vim.loop.now()
+          if now - focus_state.last_focus_time > 200 then
+            vim.schedule(function()
+              safe_checktime()
+            end)
+          end
         end,
+        desc = "Safe BufEnter handler"
+      })
+
+      -- Track autosave state to prevent conflicts
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "AutoSaveWritePre",
+        callback = function()
+          focus_state.autosave_in_progress = true
+        end,
+      })
+
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "AutoSaveWritePost",
+        callback = function()
+          vim.schedule(function()
+            focus_state.autosave_in_progress = false
+          end)
+        end,
+      })
+
+      vim.api.nvim_create_autocmd("FileChangedShellPost", {
+        pattern = "*",
+        callback = function(args)
+          local buf = args.buf
+          if buf and vim.api.nvim_buf_is_valid(buf) then
+            local buf_name = vim.api.nvim_buf_get_name(buf)
+            if buf_name ~= "" then
+              vim.notify("File changed on disk: " .. vim.fs.basename(buf_name), vim.log.levels.WARN)
+            end
+          end
+        end,
+      })
+
+      vim.api.nvim_create_autocmd("FocusLost", {
+        pattern = "*",
+        callback = function()
+          focus_state.pending_checktime = false
+        end,
+        desc = "Focus lost cleanup"
       })
     end,
   },
